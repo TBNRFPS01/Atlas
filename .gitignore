@@ -1,0 +1,12 @@
+# Generated .gitignore for ATLAS cleanup
+__pycache__/
+*.pyc
+atlas_memory.db
+ATLASS.zip
+*.zip
+.env
+*.sqlite3
+*.db
+.DS_Store
+.idea/
+.vscode/
