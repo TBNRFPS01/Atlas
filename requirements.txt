@@ -1,0 +1,15 @@
+openai>=1.0.0
+numpy>=1.24.0
+sounddevice>=0.4.0
+faster-whisper>=0.10.0
+pyttsx3>=2.90
+edge-tts>=6.1.0
+miniaudio>=1.60
+pyautogui>=0.9.54
+psutil>=5.9.0
+pygetwindow>=0.0.9
+mss>=9.0.0
+opencv-python>=4.8.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
+soundfile>=0.12.0
