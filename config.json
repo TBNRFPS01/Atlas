@@ -1,0 +1,20 @@
+{
+  "model": "local-model",
+  "temperature": 0.7,
+  "max_tokens": 512,
+  "history_size": 60,
+  "stream": true,
+  "voice_enabled": false,
+  "whisper_model": "small",
+  "tts_engine": "piper",
+  "tts_voice": "en_US-lessac-medium",
+  "voice_rate": 180,
+  "voice_volume": 1.0,
+  "voice_language": "en",
+  "push_to_talk_key": "F8",
+  "record_seconds": 4,
+  "sample_rate": 16000,
+  "memory_enabled": true,
+  "debug_mode": true,
+  "theme": "dark"
+}
