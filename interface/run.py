@@ -12,18 +12,12 @@ def build_backend():
     """Construct the standard ATLAS backend components and return them."""
     from config.manager import ConfigManager
     from core.brain import Brain
-    from core.events import EventBus
     from core.router import Router
     from memory.facts import FactStore
-    from plugins import PluginLoader
-    from services.daily_briefing import DailyBriefingService
-    from services.health_monitor import HealthMonitor
-    from services.provider_monitor import ProviderMonitor
     from tools.registry import ToolRegistry
     from voice.controller import VoiceController
 
     config = ConfigManager()
-    event_bus = EventBus()
     memory = FactStore()
     registry = ToolRegistry()
     registry.discover()
@@ -68,6 +62,10 @@ def build_backend():
 
 
 def main() -> None:
+    # Apply component-level geometry corrections before any widgets are built.
+    from interface.layout_fixes import apply_layout_fixes
+    apply_layout_fixes()
+
     from interface.gui import launch_ui
 
     backend = build_backend()
