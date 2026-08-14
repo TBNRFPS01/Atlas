@@ -37,7 +37,14 @@ class ToolRegistry:
                 continue
 
             module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            try:
+                spec.loader.exec_module(module)
+            except Exception as exc:
+                # A single bad tool module (missing dependency, platform-
+                # specific import, syntax error) should not take down
+                # discovery for every other tool.
+                print(f"Tools: Warning - failed to load '{path.name}': {exc}")
+                continue
 
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)

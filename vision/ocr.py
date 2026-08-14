@@ -43,6 +43,10 @@ class OCR:
             print(f"Vision: Warning - OCR failed: {exc}")
             return ""
 
+    def extract_text(self, image: np.ndarray | None) -> str:
+        """Alias for extract(); some callers (automation/context.py) use this name."""
+        return self.extract(image)
+
     def extract_from_file(self, path: str) -> str:
         """Extract text from an image file."""
         if pytesseract is None:

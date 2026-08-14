@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+# pyautogui is an optional runtime dependency — declare as `Any` so that
+# static analysis (Pylance) doesn't warn about attribute access when the
+# module is present at runtime. It will be assigned in the try block.
+pyautogui: Any = None
 try:
-    import pyautogui
+    import pyautogui  # type: ignore
 except Exception:  # pragma: no cover - optional runtime dependency
     pyautogui = None
 

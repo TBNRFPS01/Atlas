@@ -26,6 +26,9 @@ class Router:
         registry=None,
         config=None,
     ) -> None:
+        # Optional voice controller attached at runtime by main; annotate
+        # here so Pylance knows the attribute exists.
+        self._voice_controller: Any | None = None
         self.brain = brain or Brain()
         self.personality = personality or ATLASPersonality()
         self.memory = memory or FactStore()
@@ -55,7 +58,7 @@ class Router:
         if lowered.startswith("search "):
             return self.personality.respond(self._search(prompt))
 
-        if self._looks_like_tool_request(lowered):
+        if self._looks_like_tool_request(prompt, lowered):
             return self.personality.respond(self._dispatch_tool(lowered))
 
         return self.personality.respond(self.brain.ask(prompt))
@@ -83,7 +86,7 @@ class Router:
             yield self._search(prompt)
             return
 
-        if self._looks_like_tool_request(lowered):
+        if self._looks_like_tool_request(prompt, lowered):
             yield self._dispatch_tool(lowered)
             return
 
@@ -158,33 +161,52 @@ class Router:
         normalized = [result.split("=", 1)[-1] if "=" in result else result for result in results]
         return " | ".join(normalized)
 
-    def _looks_like_tool_request(self, lowered: str) -> bool:
-        for tool_name in self._registry.list():
-            if tool_name in lowered:
-                return True
+    # Multi-word phrases that are unambiguous tool commands, matched
+    # anywhere in the message.
+    _TOOL_TRIGGER_PHRASES = (
+        "system info", "system information", "computer info", "hardware info",
+        "cpu info", "memory info", "read file", "write file", "open file",
+        "delete file", "append to file", "list folder", "list directory",
+        "search the web", "search web for", "look up", "browse to",
+        "open website", "open url", "fetch url", "minecraft status",
+        "take a screenshot", "take screenshot", "capture screen",
+        "run ocr", "read the screen", "open camera", "take a photo",
+    )
 
-        return any(
-            phrase in lowered
-            for phrase in (
-                "system",
-                "computer",
-                "hardware",
-                "file",
-                "read",
-                "write",
-                "folder",
-                "web",
-                "internet",
-                "browser",
-                "url",
-                "search web",
-                "look up",
-                "minecraft",
-                "screenshot",
-                "ocr",
-                "camera",
-            )
+    # Action verbs that, when they open the message, make a bare tool-name
+    # mention (e.g. "system", "file", "web") a likely command rather than
+    # a normal sentence that happens to contain the word.
+    _ACTION_VERBS = {
+        "open", "read", "write", "append", "delete", "remove", "list",
+        "check", "find", "search", "look", "take", "capture", "launch",
+        "start", "run", "fetch", "browse", "screenshot", "show", "get",
+    }
+
+    def _looks_like_tool_request(self, prompt: str, lowered: str) -> bool:
+        # A literal file path or URL in the message is an unambiguous signal
+        # regardless of wording ("read C:\notes.txt", "open example.com").
+        if self._extract_path(lowered) or self._extract_url(lowered):
+            return True
+
+        if any(phrase in lowered for phrase in self._TOOL_TRIGGER_PHRASES):
+            return True
+
+        words = re.findall(r"[a-z0-9']+", lowered)
+        if not words:
+            return False
+
+        tool_name_hit = any(
+            re.search(rf"\b{re.escape(name)}\b", lowered)
+            for name in self._registry.list()
         )
+        if not tool_name_hit:
+            return False
+
+        # Only treat a bare tool-name mention as a command if the message
+        # also opens with an action verb - otherwise it's almost certainly
+        # ordinary conversation that happens to mention the word (e.g.
+        # "what's a good system for learning guitar").
+        return bool(set(words[:3]) & self._ACTION_VERBS)
 
     def _extract_path(self, text: str) -> str:
         """Pull a plausible filesystem path out of a natural-language prompt."""

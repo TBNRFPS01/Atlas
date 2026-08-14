@@ -38,7 +38,7 @@ class Brain:
     """
 
     DEFAULT_ENDPOINT = "http://localhost:1234/v1"
-    DEFAULT_MODEL = "local-model"
+    DEFAULT_MODEL = "mistralai/ministral-3-3b"
     DEFAULT_SYSTEM_PROMPT = (
         "You are ATLAS, a calm, intelligent, honest, helpful, and professional "
         "desktop assistant. Speak naturally and never pretend to perform actions "
@@ -88,7 +88,10 @@ class Brain:
         self.memory_store = memory_store or FactStore()
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.client = OpenAI(base_url=self.endpoint, api_key=self.api_key)
+        # The OpenAI client library exposes complex typed overloads that
+        # Pylance sometimes flags. Treat the client as `Any` to avoid
+        # spurious diagnostic noise while preserving runtime behavior.
+        self.client: Any = OpenAI(base_url=self.endpoint, api_key=self.api_key)
         self.history: list[ConversationMessage] = []
         self.system_prompt = self.DEFAULT_SYSTEM_PROMPT
 
@@ -130,9 +133,24 @@ class Brain:
         return self.model
 
     def _history_messages(self) -> list[dict[str, str]]:
-        messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt}]
+        """Return conversation history without using the `system` role.
+
+        Some local models (e.g. Ministral templates) do not accept a
+        separate `system` role and require user/assistant/tool roles only.
+        To remain compatible we inject the system prompt (and any stored
+        system messages) as user messages prefixed with an explanatory
+        header so the assistant still receives the same instructions.
+        """
+        messages: list[dict[str, str]] = []
+        if self.system_prompt:
+            messages.append({"role": "user", "content": f"System prompt:\n{self.system_prompt}"})
+
         for item in self.history:
-            messages.append({"role": item.role.value, "content": item.content})
+            if item.role == MessageRole.SYSTEM:
+                messages.append({"role": "user", "content": f"System message:\n{item.content}"})
+            else:
+                messages.append({"role": item.role.value, "content": item.content})
+
         return messages
 
     def _extract_text(self, response: Any) -> str:

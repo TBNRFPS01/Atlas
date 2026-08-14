@@ -99,7 +99,7 @@ class WebTool(Tool):
         return re.sub(r"\s+", " ", piece).strip()
 
     def execute(self, *args, **kwargs) -> str:
-        action = kwargs.get("action", kwargs.get("query", None) if kwargs.get("query") else "search")
+        action = kwargs.get("action") or "search"
         url = kwargs.get("url", "")
         query = kwargs.get("query", "")
 

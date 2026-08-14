@@ -6,7 +6,6 @@ import time
 import subprocess
 import os
 import shutil
-import winreg
 from datetime import datetime
 from pathlib import Path
 
@@ -96,12 +95,19 @@ class SystemTool(Tool):
         
         # Method 2: Check common Windows locations
         if platform.system() == "Windows":
-            # Check registry for installed applications
+            # Check registry for installed applications (winreg is
+            # Windows-only, so it's imported lazily here rather than at
+            # module level - importing it unconditionally would crash
+            # tool discovery on Linux/macOS).
+            try:
+                import winreg
+            except ImportError:
+                winreg = None
             try:
                 registry_paths = [
                     r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
                     r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
-                ]
+                ] if winreg is not None else []
                 for reg_path in registry_paths:
                     try:
                         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:

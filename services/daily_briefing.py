@@ -77,7 +77,13 @@ class DailyBriefingService:
 
             briefing = self.router.brain.ask(prompt)
             if briefing and not briefing.startswith("LM Studio"):
-                self.router.route(f"say {briefing}")
+                print(f"\nATLAS (daily briefing): {briefing}\n")
+                voice = getattr(self.router, "_voice_controller", None)
+                if voice is not None and getattr(voice, "enabled", False):
+                    try:
+                        voice.speaker.speak(briefing)
+                    except Exception:
+                        pass
         except Exception:
             pass
 

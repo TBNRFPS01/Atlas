@@ -16,5 +16,7 @@
   "sample_rate": 16000,
   "memory_enabled": true,
   "debug_mode": true,
-  "theme": "dark"
+  "theme": "dark",
+  "context_strategy": "Automatic",
+  "endpoint": "http://localhost:1234/v1"
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import threading
 
 from config.manager import ConfigManager
@@ -20,7 +21,7 @@ from voice.config import VOICE_ENABLED
 
 def print_startup_screen(brain: Brain, registry: ToolRegistry, config: ConfigManager) -> None:
     print("====================================")
-    print("ATLAS v2")
+    print("ATLAS v1")
     print("Brain:")
     print("✓ Online")
     print("Memory:")
@@ -40,6 +41,22 @@ def print_startup_screen(brain: Brain, registry: ToolRegistry, config: ConfigMan
 
 
 def main() -> None:
+    if "--ui" in sys.argv:
+        # Launch the desktop interface instead of the CLI loop.
+        from interface.gui import launch_ui
+        from interface.run import build_backend
+
+        backend = build_backend()
+        launch_ui(
+            router=backend["router"],
+            brain=backend["brain"],
+            memory=backend["memory"],
+            voice_controller=backend["voice_controller"],
+            config_manager=backend["config_manager"],
+            tool_registry=backend["tool_registry"],
+        )
+        return
+
     config = ConfigManager()
     event_bus = EventBus()
     memory = FactStore()
