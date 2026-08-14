@@ -68,9 +68,6 @@ def build_backend():
 
 
 def main() -> None:
-    # Apply defensive UI fixes before importing/constructing the application.
-    from interface.runtime_fixes import apply
-    apply()
     from interface.gui import launch_ui
 
     backend = build_backend()
