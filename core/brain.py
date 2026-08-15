@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import re
@@ -132,24 +132,49 @@ class Brain:
 
         return self.model
 
-    def _history_messages(self) -> list[dict[str, str]]:
-        """Return conversation history without using the `system` role.
+    def _history_messages(self, context: str = "") -> list[dict[str, str]]:
+        """Build a Ministral-compatible conversation history.
 
-        Some local models (e.g. Ministral templates) do not accept a
-        separate `system` role and require user/assistant/tool roles only.
-        To remain compatible we inject the system prompt (and any stored
-        system messages) as user messages prefixed with an explanatory
-        header so the assistant still receives the same instructions.
+        Keeps exactly one optional system message, followed by alternating
+        user and assistant messages. Memory context is merged into the
+        system message instead of creating another system role.
         """
         messages: list[dict[str, str]] = []
+
+        system_parts: list[str] = []
+
         if self.system_prompt:
-            messages.append({"role": "user", "content": f"System prompt:\n{self.system_prompt}"})
+            system_parts.append(self.system_prompt)
 
         for item in self.history:
             if item.role == MessageRole.SYSTEM:
-                messages.append({"role": "user", "content": f"System message:\n{item.content}"})
+                system_parts.append(item.content)
+
+        if context:
+            system_parts.append(f"Relevant memory context:\n{context}")
+
+        if system_parts:
+            messages.append({
+                "role": "system",
+                "content": "\n\n".join(system_parts),
+            })
+
+        for item in self.history:
+            if item.role == MessageRole.SYSTEM:
+                continue
+
+            # Prevent duplicate consecutive user/assistant roles.
+            if (
+                messages
+                and item.role.value in {"user", "assistant"}
+                and messages[-1]["role"] == item.role.value
+            ):
+                messages[-1]["content"] += f"\n\n{item.content}"
             else:
-                messages.append({"role": item.role.value, "content": item.content})
+                messages.append({
+                    "role": item.role.value,
+                    "content": item.content,
+                })
 
         return messages
 
@@ -305,3 +330,4 @@ class Brain:
             )
         except Exception as exc:
             yield f"LM Studio request failed: {exc}"
+
