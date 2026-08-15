@@ -1,0 +1,160 @@
+/* ATLAS Phase 1 visual layer */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+:root {
+  --atlas-bg: #17191a;
+  --atlas-surface: rgba(25, 29, 30, .56);
+  --atlas-surface-strong: rgba(34, 39, 40, .72);
+  --atlas-text: #f2f4f3;
+  --atlas-muted: rgba(226, 233, 231, .62);
+  --atlas-border: rgba(237, 230, 230, .12);
+  --atlas-accent: #156874;
+  --atlas-accent-rgb: 21, 104, 116;
+  --atlas-radius: 20px;
+  --atlas-glow: 0 0 0 1px rgba(var(--atlas-accent-rgb), .12), 0 16px 60px rgba(0,0,0,.22), 0 0 45px rgba(var(--atlas-accent-rgb), .10);
+}
+
+body {
+  background:
+    radial-gradient(circle at 15% 8%, rgba(var(--atlas-accent-rgb), .18), transparent 28%),
+    radial-gradient(circle at 88% 88%, rgba(var(--atlas-accent-rgb), .08), transparent 30%),
+    var(--atlas-bg) !important;
+  color: var(--atlas-text) !important;
+  font-family: Manrope, ui-sans-serif, system-ui, sans-serif !important;
+  letter-spacing: -.01em;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: .18;
+  background-image: radial-gradient(rgba(255,255,255,.12) .55px, transparent .55px);
+  background-size: 5px 5px;
+  mask-image: linear-gradient(to bottom, black, transparent 72%);
+}
+
+.topbar {
+  height: 72px !important;
+  padding: 0 24px !important;
+  background: rgba(20, 23, 24, .55) !important;
+  border-bottom: 1px solid var(--atlas-border) !important;
+  backdrop-filter: blur(28px) saturate(135%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(135%) !important;
+}
+
+.top-title, .brand, .welcome h1, .message-name {
+  font-family: 'Space Grotesk', sans-serif !important;
+}
+
+.top-title {
+  font-size: 15px;
+  letter-spacing: .08em !important;
+  color: var(--atlas-text) !important;
+}
+
+.top-subtitle, .message-meta, .suggestion span, .section-label, .user-subtitle {
+  color: var(--atlas-muted) !important;
+}
+
+.sidebar-backdrop { background: rgba(0,0,0,.34) !important; backdrop-filter: blur(3px); }
+
+.sidebar {
+  width: min(320px, calc(100vw - 28px)) !important;
+  margin: 14px 0 14px 14px;
+  height: calc(100vh - 28px) !important;
+  border: 1px solid var(--atlas-border) !important;
+  border-radius: 0 var(--atlas-radius) var(--atlas-radius) 0 !important;
+  background: rgba(25, 29, 30, .68) !important;
+  box-shadow: var(--atlas-glow) !important;
+  backdrop-filter: blur(30px) saturate(135%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(135%) !important;
+}
+
+.sidebar-header, .sidebar-footer { border-color: var(--atlas-border) !important; }
+.brand-mark, .message.assistant .message-avatar, .send-button, .primary-button {
+  background: var(--atlas-accent) !important;
+  box-shadow: 0 6px 22px rgba(var(--atlas-accent-rgb), .28);
+}
+.brand-mark { border-radius: 12px !important; }
+
+.icon-button, .more-button, .temporary-chat, .user-button, .new-project, .message-action {
+  color: var(--atlas-muted) !important;
+}
+.icon-button:hover, .message-action:hover, .user-button:hover, .project:hover, .history-item:hover {
+  background: rgba(255,255,255,.06) !important;
+  color: var(--atlas-text) !important;
+}
+.history-item.active {
+  background: rgba(var(--atlas-accent-rgb), .18) !important;
+  color: var(--atlas-text) !important;
+}
+
+.search-wrap input, .temporary-chat {
+  background: rgba(255,255,255,.035) !important;
+  border-color: var(--atlas-border) !important;
+  color: var(--atlas-text) !important;
+}
+.search-wrap input:focus, .composer:focus-within {
+  border-color: rgba(var(--atlas-accent-rgb), .72) !important;
+  box-shadow: 0 0 0 3px rgba(var(--atlas-accent-rgb), .12), 0 0 34px rgba(var(--atlas-accent-rgb), .10) !important;
+}
+
+.main { background: transparent !important; }
+.chat-container { width: min(860px, 100%) !important; padding-top: 54px !important; }
+.welcome h1 { color: var(--atlas-text) !important; font-size: clamp(42px, 6vw, 70px) !important; }
+.welcome h1::first-letter { color: var(--atlas-accent); }
+.welcome p, .message-content { color: rgba(242,244,243,.82) !important; }
+
+.suggestion {
+  border-color: var(--atlas-border) !important;
+  background: rgba(255,255,255,.045) !important;
+  color: var(--atlas-text) !important;
+  border-radius: 18px !important;
+  backdrop-filter: blur(18px);
+}
+.suggestion:hover {
+  transform: translateY(-3px) !important;
+  border-color: rgba(var(--atlas-accent-rgb), .52) !important;
+  background: rgba(var(--atlas-accent-rgb), .09) !important;
+  box-shadow: 0 12px 35px rgba(0,0,0,.16), 0 0 28px rgba(var(--atlas-accent-rgb), .08);
+}
+
+.message.user .message-content, .tool-activity, .tool-summary, .attachment {
+  background: rgba(255,255,255,.045) !important;
+  border-color: var(--atlas-border) !important;
+  color: var(--atlas-text) !important;
+  backdrop-filter: blur(18px);
+}
+.message.user .message-avatar {
+  background: rgba(var(--atlas-accent-rgb), .18) !important;
+  color: var(--atlas-text) !important;
+}
+
+.composer-area {
+  padding: 22px 24px 26px !important;
+  background: linear-gradient(to top, rgba(23,25,26,.96) 68%, rgba(23,25,26,0)) !important;
+}
+.composer-wrap { width: min(860px, calc(100% - 24px)) !important; }
+.composer {
+  padding: 9px 10px 9px 14px !important;
+  border-radius: 22px !important;
+  border-color: var(--atlas-border) !important;
+  background: rgba(31, 36, 37, .70) !important;
+  box-shadow: var(--atlas-glow) !important;
+  backdrop-filter: blur(28px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(140%) !important;
+}
+.composer textarea { color: var(--atlas-text) !important; }
+.composer textarea::placeholder { color: var(--atlas-muted) !important; }
+.composer-button.secondary { color: var(--atlas-muted) !important; }
+.send-button { border-radius: 15px !important; transition: transform .18s ease, box-shadow .18s ease !important; }
+.send-button:hover { transform: translateY(-1px) scale(1.02); box-shadow: 0 8px 26px rgba(var(--atlas-accent-rgb), .34); }
+
+@media (max-width: 700px) {
+  .topbar { padding: 0 14px !important; }
+  .chat-container { padding-left: 16px !important; padding-right: 16px !important; }
+  .suggestions { grid-template-columns: 1fr !important; }
+  .sidebar { margin-left: 8px; width: calc(100vw - 16px) !important; }
+}
