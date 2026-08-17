@@ -1,0 +1,3342 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ATLAS</title>
+
+<style>
+:root {
+  --ivory: #FFFBF0;
+  --ivory-soft: #F7F0E2;
+  --ivory-deep: #EDE2CF;
+
+  --bordeaux: #53161D;
+  --bordeaux-hover: #6B1D27;
+  --bordeaux-dark: #3D0F15;
+  --bordeaux-soft: #F1E3E3;
+
+  --ink: #211B1C;
+  --ink-soft: #625A57;
+  --muted: #958B86;
+
+  --border: #E5DCCD;
+  --border-strong: #D5C9B7;
+
+  --shadow: 0 18px 55px rgba(64, 37, 29, .12);
+  --radius: 18px;
+
+  --sidebar-width: 310px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ivory);
+  color: var(--ink);
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  overflow: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* =========================================================
+   APP
+========================================================= */
+
+.app {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* =========================================================
+   SIDEBAR
+========================================================= */
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+
+  background: rgba(35, 20, 18, .18);
+
+  opacity: 0;
+  visibility: hidden;
+
+  transition: .25s ease;
+}
+
+.sidebar-backdrop.show {
+  opacity: 1;
+  visibility: visible;
+}
+
+.sidebar {
+  position: fixed;
+  z-index: 60;
+
+  top: 0;
+  left: 0;
+
+  width: var(--sidebar-width);
+  height: 100vh;
+
+  background: #FFFDF7;
+  border-right: 1px solid var(--border);
+
+  transform: translateX(-105%);
+
+  transition: transform .28s cubic-bezier(.2,.8,.2,1);
+
+  display: flex;
+  flex-direction: column;
+
+  box-shadow: 20px 0 60px rgba(45,25,20,.12);
+}
+
+.sidebar.open {
+  transform: translateX(0);
+}
+
+.sidebar-header {
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  margin-bottom: 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 11px;
+
+  background: var(--bordeaux);
+  color: var(--ivory);
+
+  font-weight: 900;
+}
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+
+  border: 0;
+  border-radius: 10px;
+
+  background: transparent;
+  color: var(--ink-soft);
+
+  cursor: pointer;
+
+  display: grid;
+  place-items: center;
+
+  transition: .15s ease;
+}
+
+.icon-button:hover {
+  background: var(--ivory-soft);
+  color: var(--bordeaux);
+}
+
+.primary-button {
+  border: 0;
+  border-radius: 12px;
+
+  padding: 12px 14px;
+
+  background: var(--bordeaux);
+  color: white;
+
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition: .15s ease;
+}
+
+.primary-button:hover {
+  background: var(--bordeaux-hover);
+  transform: translateY(-1px);
+}
+
+.new-chat {
+  width: 100%;
+}
+
+.temporary-chat {
+  width: 100%;
+
+  margin-top: 8px;
+
+  border: 1px solid var(--border);
+  border-radius: 12px;
+
+  padding: 10px;
+
+  background: transparent;
+  color: var(--ink-soft);
+
+  cursor: pointer;
+}
+
+.temporary-chat:hover {
+  border-color: var(--bordeaux);
+  color: var(--bordeaux);
+}
+
+.search-wrap {
+  position: relative;
+  margin-top: 14px;
+}
+
+.search-wrap span {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+
+  transform: translateY(-50%);
+
+  color: var(--muted);
+}
+
+.search-wrap input {
+  width: 100%;
+
+  padding: 10px 12px 10px 36px;
+
+  background: var(--ivory);
+  color: var(--ink);
+
+  border: 1px solid var(--border);
+  border-radius: 10px;
+
+  outline: none;
+}
+
+.search-wrap input:focus {
+  border-color: var(--bordeaux);
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+
+  padding: 14px 10px;
+}
+
+.sidebar-section {
+  margin-bottom: 20px;
+}
+
+.section-label {
+  padding: 0 10px 7px;
+
+  color: var(--muted);
+
+  font-size: 10px;
+  font-weight: 800;
+
+  letter-spacing: .1em;
+}
+
+.project,
+.history-item {
+  width: 100%;
+
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  padding: 10px;
+
+  border-radius: 10px;
+
+  cursor: pointer;
+
+  transition: .15s ease;
+}
+
+.project:hover,
+.history-item:hover {
+  background: var(--ivory-soft);
+}
+
+.history-item.active {
+  background: var(--bordeaux-soft);
+  color: var(--bordeaux);
+}
+
+.item-title {
+  flex: 1;
+
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+
+  font-size: 13px;
+}
+
+.more-button {
+  opacity: 0;
+
+  border: 0;
+  background: transparent;
+
+  cursor: pointer;
+
+  color: var(--muted);
+}
+
+.project:hover .more-button,
+.history-item:hover .more-button {
+  opacity: 1;
+}
+
+.new-project {
+  width: calc(100% - 20px);
+  margin: 5px 10px;
+
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+
+  padding: 10px;
+
+  background: transparent;
+
+  color: var(--ink-soft);
+
+  cursor: pointer;
+}
+
+.new-project:hover {
+  border-color: var(--bordeaux);
+  color: var(--bordeaux);
+}
+
+.sidebar-footer {
+  border-top: 1px solid var(--border);
+  padding: 12px;
+}
+
+.user-button {
+  width: 100%;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  border: 0;
+  border-radius: 12px;
+
+  padding: 10px;
+
+  background: transparent;
+
+  text-align: left;
+
+  cursor: pointer;
+}
+
+.user-button:hover {
+  background: var(--ivory-soft);
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+
+  border-radius: 50%;
+
+  display: grid;
+  place-items: center;
+
+  background: var(--bordeaux-soft);
+  color: var(--bordeaux);
+
+  font-weight: 800;
+}
+
+.user-info {
+  flex: 1;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.user-subtitle {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* =========================================================
+   MAIN
+========================================================= */
+
+.main {
+  height: 100vh;
+
+  display: flex;
+  flex-direction: column;
+
+  background: var(--ivory);
+}
+
+/* =========================================================
+   TOPBAR
+========================================================= */
+
+.topbar {
+  height: 68px;
+  flex: 0 0 auto;
+
+  display: flex;
+  align-items: center;
+
+  padding: 0 20px;
+
+  border-bottom: 1px solid rgba(229,220,205,.7);
+
+  background: rgba(255,251,240,.86);
+
+  backdrop-filter: blur(16px);
+
+  z-index: 10;
+}
+
+.top-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+.top-subtitle {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.top-actions {
+  margin-left: auto;
+
+  display: flex;
+  gap: 4px;
+}
+
+/* =========================================================
+   CHAT AREA
+========================================================= */
+
+.chat-scroll {
+  flex: 1;
+
+  overflow-y: auto;
+
+  min-height: 0;
+
+  scroll-behavior: smooth;
+}
+
+.chat-container {
+  width: min(900px, 100%);
+  margin: 0 auto;
+
+  padding: 40px 24px 180px;
+}
+
+/* =========================================================
+   WELCOME STATE
+   CENTERED UNTIL FIRST MESSAGE
+========================================================= */
+
+.welcome-stage {
+  min-height: calc(100vh - 68px);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding-bottom: 130px;
+}
+
+.welcome {
+  width: min(720px, 100%);
+}
+
+.welcome h1 {
+  margin: 0 0 14px;
+
+  color: var(--bordeaux);
+
+  font-size: clamp(40px, 6vw, 64px);
+  line-height: 1;
+
+  letter-spacing: -.065em;
+}
+
+.welcome p {
+  max-width: 550px;
+
+  margin: 0 0 34px;
+
+  color: var(--ink-soft);
+
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.suggestions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+
+  gap: 10px;
+}
+
+.suggestion {
+  border: 1px solid var(--border);
+  border-radius: 15px;
+
+  padding: 16px;
+
+  background: rgba(255,255,255,.28);
+
+  text-align: left;
+
+  cursor: pointer;
+
+  transition: .18s ease;
+}
+
+.suggestion:hover {
+  transform: translateY(-2px);
+
+  border-color: var(--bordeaux);
+
+  background: #FFFDF8;
+}
+
+.suggestion strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.suggestion span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* =========================================================
+   MESSAGES
+========================================================= */
+
+.messages {
+  display: none;
+}
+
+.messages.visible {
+  display: block;
+}
+
+.message {
+  display: flex;
+  gap: 14px;
+
+  margin-bottom: 30px;
+
+  animation: messageIn .25s ease;
+}
+
+@keyframes messageIn {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-avatar {
+  width: 34px;
+  height: 34px;
+
+  flex: 0 0 auto;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 50%;
+
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.message.assistant .message-avatar {
+  background: var(--bordeaux);
+  color: var(--ivory);
+}
+
+.message.user .message-avatar {
+  background: var(--ivory-deep);
+  color: var(--bordeaux);
+}
+
+.message-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  margin-bottom: 7px;
+}
+
+.message-name {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.message-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.message-content {
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.message.user .message-content {
+  display: inline-block;
+
+  padding: 13px 16px;
+
+  background: #FFFDF8;
+
+  border: 1px solid var(--border);
+
+  border-radius: 5px 16px 16px 16px;
+}
+
+.message-actions {
+  display: flex;
+  gap: 3px;
+
+  margin-top: 8px;
+
+  opacity: 0;
+
+  transition: opacity .15s ease;
+}
+
+.message:hover .message-actions {
+  opacity: 1;
+}
+
+.message-action {
+  width: 30px;
+  height: 30px;
+
+  border: 0;
+  border-radius: 8px;
+
+  background: transparent;
+
+  color: var(--muted);
+
+  cursor: pointer;
+}
+
+.message-action:hover {
+  background: var(--ivory-soft);
+  color: var(--bordeaux);
+}
+
+/* =========================================================
+   TOOL ACTIVITY
+========================================================= */
+
+.tool-activity {
+  margin: -8px 0 26px 48px;
+
+  border: 1px solid var(--border);
+  border-radius: 12px;
+
+  overflow: hidden;
+}
+
+.tool-summary {
+  width: 100%;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 10px 13px;
+
+  border: 0;
+
+  background: #FFFDF8;
+
+  color: var(--ink-soft);
+
+  cursor: pointer;
+}
+
+.tool-summary:hover {
+  background: var(--ivory-soft);
+}
+
+.tool-details {
+  display: none;
+
+  border-top: 1px solid var(--border);
+
+  padding: 10px 13px;
+
+  color: var(--ink-soft);
+
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.tool-activity.open .tool-details {
+  display: block;
+}
+
+/* =========================================================
+   COMPOSER
+========================================================= */
+
+.composer-area {
+  position: fixed;
+
+  left: 0;
+  right: 0;
+  bottom: 0;
+
+  z-index: 20;
+
+  padding: 24px;
+
+  background:
+    linear-gradient(
+      to top,
+      var(--ivory) 76%,
+      rgba(255,251,240,0)
+    );
+}
+
+.composer-wrap {
+  position: relative;
+
+  width: min(900px, calc(100% - 20px));
+  margin: 0 auto;
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  margin-bottom: 8px;
+}
+
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  padding: 7px 9px;
+
+  background: #FFFDF8;
+
+  border: 1px solid var(--border);
+  border-radius: 9px;
+
+  font-size: 12px;
+}
+
+.attachment button {
+  border: 0;
+  background: transparent;
+
+  color: var(--muted);
+
+  cursor: pointer;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+
+  gap: 8px;
+
+  padding: 8px;
+
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+
+  background: #FFFDF8;
+
+  box-shadow: var(--shadow);
+
+  transition: border-color .15s ease;
+}
+
+.composer:focus-within {
+  border-color: var(--bordeaux);
+}
+
+.composer textarea {
+  flex: 1;
+
+  min-height: 42px;
+  max-height: 180px;
+
+  resize: none;
+
+  padding: 11px 7px;
+
+  border: 0;
+  outline: none;
+
+  background: transparent;
+  color: var(--ink);
+
+  line-height: 1.45;
+}
+
+.composer textarea::placeholder {
+  color: var(--muted);
+}
+
+.composer-button {
+  width: 40px;
+  height: 40px;
+
+  flex: 0 0 auto;
+
+  border: 0;
+  border-radius: 12px;
+
+  display: grid;
+  place-items: center;
+
+  cursor: pointer;
+}
+
+.composer-button.secondary {
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.composer-button.secondary:hover {
+  background: var(--ivory-soft);
+  color: var(--bordeaux);
+}
+
+.send-button {
+  background: var(--bordeaux);
+  color: white;
+}
+
+.send-button:hover {
+  background: var(--bordeaux-hover);
+}
+
+.stop-button {
+  display: none;
+
+  background: var(--bordeaux-dark);
+  color: white;
+}
+
+.composer-footnote {
+  margin-top: 9px;
+
+  text-align: center;
+
+  color: var(--muted);
+
+  font-size: 10px;
+}
+
+/* =========================================================
+   VOICE MODE
+========================================================= */
+
+.voice-overlay {
+  position: fixed;
+  z-index: 40;
+
+  left: 0;
+  right: 0;
+  bottom: 0;
+
+  display: none;
+
+  padding: 24px;
+
+  background:
+    linear-gradient(
+      to top,
+      var(--ivory) 80%,
+      rgba(255,251,240,0)
+    );
+}
+
+.voice-overlay.show {
+  display: block;
+}
+
+.voice-panel {
+  width: min(900px, 100%);
+  margin: 0 auto;
+
+  min-height: 210px;
+
+  display: flex;
+  flex-direction: column;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 14px;
+
+  border: 1px solid var(--border);
+  border-radius: 24px;
+
+  background: #FFFDF8;
+
+  box-shadow: var(--shadow);
+}
+
+.voice-orb {
+  width: 76px;
+  height: 76px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 50%;
+
+  background: var(--bordeaux);
+  color: white;
+
+  font-size: 25px;
+
+  cursor: pointer;
+
+  animation: voicePulse 1.8s infinite ease-in-out;
+}
+
+@keyframes voicePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(83,22,29,.25);
+  }
+
+  50% {
+    box-shadow: 0 0 0 18px rgba(83,22,29,0);
+  }
+}
+
+.voice-status {
+  color: var(--bordeaux);
+
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.voice-wave {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  height: 25px;
+}
+
+.voice-bar {
+  width: 4px;
+
+  border-radius: 999px;
+
+  background: var(--bordeaux);
+
+  animation: wave 1s infinite ease-in-out;
+}
+
+.voice-bar:nth-child(1) { height: 8px; }
+.voice-bar:nth-child(2) { height: 16px; animation-delay: .1s; }
+.voice-bar:nth-child(3) { height: 24px; animation-delay: .2s; }
+.voice-bar:nth-child(4) { height: 13px; animation-delay: .3s; }
+.voice-bar:nth-child(5) { height: 20px; animation-delay: .4s; }
+
+@keyframes wave {
+  50% {
+    transform: scaleY(.45);
+  }
+}
+
+.voice-cancel {
+  border: 0;
+  background: transparent;
+
+  color: var(--muted);
+
+  cursor: pointer;
+}
+
+/* =========================================================
+   COMMAND PALETTE
+========================================================= */
+
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+
+  z-index: 100;
+
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+
+  padding-top: 15vh;
+
+  background: rgba(35,20,18,.18);
+}
+
+.command-palette-backdrop.show {
+  display: flex;
+}
+
+.command-palette {
+  width: min(620px, calc(100% - 30px));
+
+  overflow: hidden;
+
+  border: 1px solid var(--border);
+  border-radius: 18px;
+
+  background: #FFFDF8;
+
+  box-shadow: 0 30px 90px rgba(30,20,15,.2);
+}
+
+.command-search {
+  width: 100%;
+
+  padding: 17px 18px;
+
+  border: 0;
+  border-bottom: 1px solid var(--border);
+
+  outline: none;
+
+  background: transparent;
+
+  font-size: 16px;
+}
+
+.command-list {
+  padding: 8px;
+}
+
+.command {
+  width: 100%;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 12px;
+
+  border: 0;
+  border-radius: 11px;
+
+  background: transparent;
+
+  text-align: left;
+
+  cursor: pointer;
+}
+
+.command:hover {
+  background: var(--ivory-soft);
+}
+
+.command-icon {
+  width: 32px;
+  height: 32px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 9px;
+
+  background: var(--bordeaux-soft);
+  color: var(--bordeaux);
+}
+
+.command-text {
+  flex: 1;
+}
+
+.command-name {
+  font-weight: 700;
+}
+
+.command-description {
+  margin-top: 2px;
+
+  color: var(--muted);
+
+  font-size: 12px;
+}
+
+/* =========================================================
+   SETTINGS
+========================================================= */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+
+  z-index: 120;
+
+  display: none;
+  align-items: center;
+  justify-content: center;
+
+  padding: 20px;
+
+  background: rgba(30,20,15,.28);
+}
+
+.modal-backdrop.show {
+  display: flex;
+}
+
+.settings-modal {
+  width: min(800px, 100%);
+  max-height: 85vh;
+
+  display: flex;
+
+  overflow: hidden;
+
+  border: 1px solid var(--border);
+  border-radius: 20px;
+
+  background: #FFFDF8;
+
+  box-shadow: 0 30px 90px rgba(30,20,15,.2);
+}
+
+.settings-nav {
+  width: 200px;
+
+  flex: 0 0 auto;
+
+  padding: 14px;
+
+  background: var(--ivory-soft);
+
+  border-right: 1px solid var(--border);
+}
+
+.settings-nav button {
+  width: 100%;
+
+  padding: 10px 12px;
+
+  border: 0;
+  border-radius: 9px;
+
+  background: transparent;
+
+  color: var(--ink-soft);
+
+  text-align: left;
+
+  cursor: pointer;
+}
+
+.settings-nav button:hover,
+.settings-nav button.active {
+  background: #FFFDF8;
+  color: var(--bordeaux);
+}
+
+.settings-content {
+  flex: 1;
+
+  overflow-y: auto;
+
+  padding: 30px;
+}
+
+.settings-panel h2 {
+  margin-top: 0;
+
+  color: var(--bordeaux);
+}
+
+.setting {
+  padding: 18px 0;
+
+  border-bottom: 1px solid var(--border);
+}
+
+.setting:last-child {
+  border-bottom: 0;
+}
+
+.setting-title {
+  font-weight: 800;
+}
+
+.setting-description {
+  margin-top: 5px;
+  margin-bottom: 12px;
+
+  color: var(--muted);
+
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.setting input,
+.setting select {
+  width: 100%;
+
+  padding: 10px 12px;
+
+  border: 1px solid var(--border);
+  border-radius: 10px;
+
+  background: var(--ivory);
+
+  outline: none;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 20px;
+}
+
+.switch {
+  width: 45px;
+  height: 26px;
+
+  flex: 0 0 auto;
+
+  padding: 3px;
+
+  border-radius: 999px;
+
+  background: var(--ivory-deep);
+
+  cursor: pointer;
+
+  transition: .2s ease;
+}
+
+.switch span {
+  display: block;
+
+  width: 20px;
+  height: 20px;
+
+  border-radius: 50%;
+
+  background: white;
+
+  transition: .2s ease;
+}
+
+.switch.on {
+  background: var(--bordeaux);
+}
+
+.switch.on span {
+  transform: translateX(19px);
+}
+
+/* =========================================================
+   TOOLTIP / TOAST
+========================================================= */
+
+.toast {
+  position: fixed;
+
+  left: 50%;
+  bottom: 110px;
+
+  z-index: 200;
+
+  transform: translate(-50%, 20px);
+
+  padding: 10px 15px;
+
+  border-radius: 999px;
+
+  background: var(--ink);
+  color: white;
+
+  font-size: 13px;
+
+  opacity: 0;
+
+  pointer-events: none;
+
+  transition: .25s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
+@media (max-width: 650px) {
+  :root {
+    --sidebar-width: min(88vw, 310px);
+  }
+
+  .suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-container {
+    padding: 30px 16px 180px;
+  }
+
+  .composer-area {
+    padding: 12px;
+  }
+
+  .topbar {
+    padding: 0 12px;
+  }
+
+  .welcome-stage {
+    padding-bottom: 100px;
+  }
+
+  .settings-modal {
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    width: 100%;
+
+    display: flex;
+    overflow-x: auto;
+
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .settings-nav button {
+    width: auto;
+    white-space: nowrap;
+  }
+}
+</style>
+<link rel="stylesheet" href="atlas_phase1.css">
+<link rel="stylesheet" href="atlas_customizer.css">
+<script src="atlas_customizer.js" defer></script>
+</head>
+
+<body>
+
+<div class="app">
+
+  <!-- SIDEBAR BACKDROP -->
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="sidebar-header">
+
+      <div class="brand-row">
+
+        <div class="brand">
+          <div class="brand-mark">A</div>
+          ATLAS
+        </div>
+
+        <button class="icon-button" id="closeSidebar">âœ•</button>
+
+      </div>
+
+      <button class="primary-button new-chat" id="newChat">
+        ï¼‹ New Chat
+      </button>
+
+      <button class="temporary-chat" id="temporaryChat">
+        ðŸ•¶ Temporary Chat
+      </button>
+
+      <div class="search-wrap">
+        <span>âŒ•</span>
+        <input
+          type="text"
+          id="chatSearch"
+          placeholder="Search conversations"
+        >
+      </div>
+
+    </div>
+
+    <div class="sidebar-content">
+
+      <div class="sidebar-section">
+
+        <div class="section-label">PROJECTS</div>
+
+        <div class="project">
+          ðŸ“
+          <div class="item-title">ATLAS</div>
+          <button class="more-button">â€¢â€¢â€¢</button>
+        </div>
+
+        <div class="project">
+          ðŸ“
+          <div class="item-title">School</div>
+          <button class="more-button">â€¢â€¢â€¢</button>
+        </div>
+
+        <div class="project">
+          ðŸ“
+          <div class="item-title">Minecraft</div>
+          <button class="more-button">â€¢â€¢â€¢</button>
+        </div>
+
+        <div class="project">
+          ðŸ“
+          <div class="item-title">Random Chaos</div>
+          <button class="more-button">â€¢â€¢â€¢</button>
+        </div>
+
+        <button class="new-project">
+          ï¼‹ New Project
+        </button>
+
+      </div>
+
+      <div class="sidebar-section">
+
+        <div class="section-label">TODAY</div>
+
+        <div class="history-item active">
+          ðŸ’¬
+          <div class="item-title">
+            Building the ATLAS interface
+          </div>
+          <button class="more-button">â€¢â€¢â€¢</button>
+        </div>
+
+        <div class="history-item">
+          ðŸ’¬
+          <div class="item-title">
+            Python backend architecture
+          </div>
+          <button class="more-button">â€¢â€¢â€¢</button>
+        </div>
+
+      </div>
+
+      <div class="sidebar-section">
+
+        <div class="section-label">YESTERDAY</div>
+
+        <div class="history-item">
+          ðŸ’¬
+          <div class="item-title">
+            Local model testing
+          </div>
+          <button class="more-button">â€¢â€¢â€¢</button>
+        </div>
+
+        <div class="history-item">
+          ðŸ’¬
+          <div class="item-title">
+            Improving memory
+          </div>
+          <button class="more-button">â€¢â€¢â€¢</button>
+        </div>
+
+      </div>
+
+    </div>
+
+    <div class="sidebar-footer">
+
+      <button class="user-button" id="openSettings">
+
+        <div class="avatar">U</div>
+
+        <div class="user-info">
+          <div class="user-name">You</div>
+          <div class="user-subtitle">Local ATLAS</div>
+        </div>
+
+        âš™
+
+      </button>
+
+    </div>
+
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+
+      <button
+        class="icon-button"
+        id="openSidebar"
+        title="Open sidebar"
+      >
+        â˜°
+      </button>
+
+      <div class="top-title">
+        ATLAS
+        <span class="top-subtitle">
+          Local Intelligence
+        </span>
+      </div>
+
+      <div class="top-actions">
+
+        <button
+          class="icon-button"
+          id="commandButton"
+          title="Command palette"
+        >
+          âŒ˜
+        </button>
+
+        <button
+          class="icon-button"
+          id="exportButton"
+          title="Export conversation"
+        >
+          â‡©
+        </button>
+
+        <button
+          class="icon-button"
+          id="settingsButton"
+          title="Settings"
+        >
+          âš™
+        </button>
+
+      </div>
+
+    </header>
+
+    <!-- CHAT -->
+    <section class="chat-scroll" id="chatScroll">
+
+      <div class="chat-container">
+
+        <!-- CENTERED WELCOME -->
+        <div class="welcome-stage" id="welcomeStage">
+
+          <div class="welcome">
+
+            <h1>What are we building?</h1>
+
+            <p>
+              ATLAS is ready. Build something, solve something,
+              explore an idea, or throw a problem at the machine.
+            </p>
+
+            <div class="suggestions">
+
+              <button class="suggestion">
+                <strong>Build something</strong>
+                <span>Create a project or application.</span>
+              </button>
+
+              <button class="suggestion">
+                <strong>Explain something</strong>
+                <span>Break down a difficult concept.</span>
+              </button>
+
+              <button class="suggestion">
+                <strong>Analyze something</strong>
+                <span>Inspect code, data or a problem.</span>
+              </button>
+
+              <button class="suggestion">
+                <strong>Brainstorm</strong>
+                <span>Throw ideas into ATLAS.</span>
+              </button>
+
+            </div>
+
+          </div>
+
+        </div>
+
+        <!-- REAL CHAT -->
+        <div class="messages" id="messages"></div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- NORMAL COMPOSER -->
+  <div class="composer-area" id="composerArea">
+
+    <div class="composer-wrap">
+
+      <div class="attachments" id="attachments"></div>
+
+      <div class="composer">
+
+        <button
+          class="composer-button secondary"
+          id="attachButton"
+          title="Attach files"
+        >
+          ï¼‹
+        </button>
+
+        <input
+          type="file"
+          id="fileInput"
+          multiple
+          hidden
+        >
+
+        <textarea
+          id="messageInput"
+          rows="1"
+          placeholder="Message ATLAS..."
+        ></textarea>
+
+        <button
+          class="composer-button secondary"
+          id="voiceButton"
+          title="Voice mode"
+        >
+          ðŸŽ™
+        </button>
+
+        <button
+          class="composer-button stop-button"
+          id="stopButton"
+        >
+          â– 
+        </button>
+
+        <button
+          class="composer-button send-button"
+          id="sendButton"
+        >
+          â†‘
+        </button>
+
+      </div>
+
+      <div class="composer-footnote">
+        ATLAS may use local models, memory and configured tools.
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- VOICE MODE -->
+  <div class="voice-overlay" id="voiceOverlay">
+
+    <div class="voice-panel">
+
+      <div class="voice-orb" id="voiceOrb">
+        ðŸŽ™
+      </div>
+
+      <div class="voice-status">
+        Listening...
+      </div>
+
+      <div class="voice-wave">
+        <div class="voice-bar"></div>
+        <div class="voice-bar"></div>
+        <div class="voice-bar"></div>
+        <div class="voice-bar"></div>
+        <div class="voice-bar"></div>
+      </div>
+
+      <button class="voice-cancel" id="exitVoice">
+        Cancel voice mode
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
+
+<!-- COMMAND PALETTE -->
+<div
+  class="command-palette-backdrop"
+  id="commandPaletteBackdrop"
+>
+
+  <div class="command-palette">
+
+    <input
+      class="command-search"
+      id="commandSearch"
+      placeholder="Search ATLAS..."
+    >
+
+    <div class="command-list">
+
+      <button class="command" data-action="new">
+        <div class="command-icon">ï¼‹</div>
+        <div class="command-text">
+          <div class="command-name">New Chat</div>
+          <div class="command-description">
+            Start a fresh conversation
+          </div>
+        </div>
+      </button>
+
+      <button class="command" data-action="project">
+        <div class="command-icon">ðŸ“</div>
+        <div class="command-text">
+          <div class="command-name">New Project</div>
+          <div class="command-description">
+            Organize chats, files and context
+          </div>
+        </div>
+      </button>
+
+      <button class="command" data-action="temporary">
+        <div class="command-icon">ðŸ•¶</div>
+        <div class="command-text">
+          <div class="command-name">Temporary Chat</div>
+          <div class="command-description">
+            No history or persistent memory
+          </div>
+        </div>
+      </button>
+
+      <button class="command" data-action="voice">
+        <div class="command-icon">ðŸŽ™</div>
+        <div class="command-text">
+          <div class="command-name">Start Voice Mode</div>
+          <div class="command-description">
+            Talk directly to ATLAS
+          </div>
+        </div>
+      </button>
+
+      <button class="command" data-action="settings">
+        <div class="command-icon">âš™</div>
+        <div class="command-text">
+          <div class="command-name">Open Settings</div>
+          <div class="command-description">
+            Memory, models, tools and more
+          </div>
+        </div>
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
+
+<!-- SETTINGS -->
+<div class="modal-backdrop" id="settingsBackdrop">
+
+  <div class="settings-modal">
+
+    <nav class="settings-nav">
+
+      <button class="active" data-panel="general">
+        General
+      </button>
+
+      <button data-panel="appearance">
+        Appearance
+      </button>
+
+      <button data-panel="model">
+        Model
+      </button>
+
+      <button data-panel="memory">
+        Memory
+      </button>
+
+      <button data-panel="context">
+        Context
+      </button>
+
+      <button data-panel="tools">
+        Tools
+      </button>
+
+      <button data-panel="voice">
+        Voice
+      </button>
+
+      <button data-panel="data">
+        Data & Export
+      </button>
+
+      <button data-panel="advanced">
+        Advanced
+      </button>
+
+    </nav>
+
+    <div class="settings-content">
+
+      <!-- GENERAL -->
+      <section class="settings-panel" id="general">
+
+        <h2>General</h2>
+
+        <div class="setting">
+
+          <div class="setting-row">
+
+            <div>
+              <div class="setting-title">
+                Conversation history
+              </div>
+
+              <div class="setting-description">
+                Save chats locally.
+              </div>
+            </div>
+
+            <div class="switch on">
+              <span></span>
+            </div>
+
+          </div>
+
+        </div>
+
+        <div class="setting">
+
+          <div class="setting-title">
+            Keyboard shortcuts
+          </div>
+
+          <div class="setting-description">
+            Ctrl + K opens the ATLAS command palette.
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- APPEARANCE -->
+      <section
+        class="settings-panel"
+        id="appearance"
+        hidden
+      >
+
+        <h2>Appearance</h2>
+
+        <div class="setting">
+
+          <div class="setting-title">
+            Theme
+          </div>
+
+          <div class="setting-description">
+            Choose the ATLAS appearance.
+          </div>
+
+          <select>
+            <option>Ivory Whisper</option>
+            <option>Dark ATLAS</option>
+            <option>System</option>
+          </select>
+
+        </div>
+
+      </section>
+
+      <!-- MODEL -->
+      <section
+        class="settings-panel"
+        id="model"
+        hidden
+      >
+
+        <h2>Model</h2>
+
+        <div class="setting">
+
+          <div class="setting-title">
+            Active model
+          </div>
+
+          <div class="setting-description">
+            Select the model powering ATLAS.
+          </div>
+
+          <select>
+            <option>Ministral 3 3B</option>
+            <option>Qwen 3 8B</option>
+            <option>Gemma</option>
+            <option>Llama</option>
+          </select>
+
+        </div>
+
+        <div class="setting">
+
+          <div class="setting-title">
+            Temperature
+          </div>
+
+          <div class="setting-description">
+            Controls creativity.
+          </div>
+
+          <input
+            type="range"
+            min="0"
+            max="2"
+            step=".1"
+            value=".7"
+          >
+
+        </div>
+
+      </section>
+
+      <!-- MEMORY -->
+      <section
+        class="settings-panel"
+        id="memory"
+        hidden
+      >
+
+        <h2>Memory</h2>
+
+        <div class="setting">
+
+          <div class="setting-row">
+
+            <div>
+              <div class="setting-title">
+                Persistent memory
+              </div>
+
+              <div class="setting-description">
+                Store useful information locally.
+              </div>
+            </div>
+
+            <div class="switch on">
+              <span></span>
+            </div>
+
+          </div>
+
+        </div>
+
+        <div class="setting">
+
+          <div class="setting-title">
+            Saved memories
+          </div>
+
+          <div class="setting-description">
+            Review, edit or remove stored context.
+          </div>
+
+          <button class="primary-button">
+            Manage Memory
+          </button>
+
+        </div>
+
+      </section>
+
+      <!-- CONTEXT -->
+      <section
+        class="settings-panel"
+        id="context"
+        hidden
+      >
+
+        <h2>Context</h2>
+
+        <div class="setting">
+
+          <div class="setting-title">
+            Context strategy
+          </div>
+
+          <div class="setting-description">
+            Control how ATLAS retrieves conversation
+            and project information.
+          </div>
+
+          <select>
+            <option>Automatic</option>
+            <option>Balanced</option>
+            <option>Maximum Context</option>
+          </select>
+
+        </div>
+
+      </section>
+
+      <!-- TOOLS -->
+      <section
+        class="settings-panel"
+        id="tools"
+        hidden
+      >
+
+        <h2>Tools</h2>
+
+        <div class="setting setting-row">
+          <div>
+            <div class="setting-title">Web Search</div>
+            <div class="setting-description">
+              Search the web when required.
+            </div>
+          </div>
+
+          <div class="switch on"><span></span></div>
+        </div>
+
+        <div class="setting setting-row">
+          <div>
+            <div class="setting-title">File Access</div>
+            <div class="setting-description">
+              Read attached and project files.
+            </div>
+          </div>
+
+          <div class="switch on"><span></span></div>
+        </div>
+
+        <div class="setting setting-row">
+          <div>
+            <div class="setting-title">Vision</div>
+            <div class="setting-description">
+              Analyze images and visual input.
+            </div>
+          </div>
+
+          <div class="switch on"><span></span></div>
+        </div>
+
+        <div class="setting setting-row">
+          <div>
+            <div class="setting-title">System Control</div>
+            <div class="setting-description">
+              Allow configured local system actions.
+            </div>
+          </div>
+
+          <div class="switch"><span></span></div>
+        </div>
+
+      </section>
+
+      <!-- VOICE -->
+      <section
+        class="settings-panel"
+        id="voice"
+        hidden
+      >
+
+        <h2>Voice</h2>
+
+        <div class="setting setting-row">
+
+          <div>
+            <div class="setting-title">
+              Voice input
+            </div>
+
+            <div class="setting-description">
+              Talk directly to ATLAS.
+            </div>
+          </div>
+
+          <div class="switch on">
+            <span></span>
+          </div>
+
+        </div>
+
+        <div class="setting setting-row">
+
+          <div>
+            <div class="setting-title">
+              Text to speech
+            </div>
+
+            <div class="setting-description">
+              Let ATLAS speak responses.
+            </div>
+          </div>
+
+          <div class="switch">
+            <span></span>
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- DATA -->
+      <section
+        class="settings-panel"
+        id="data"
+        hidden
+      >
+
+        <h2>Data & Export</h2>
+
+        <div class="setting">
+
+          <div class="setting-title">
+            Export conversations
+          </div>
+
+          <div class="setting-description">
+            Download chats as text.
+          </div>
+
+          <button
+            class="primary-button"
+            id="settingsExport"
+          >
+            Export Current Chat
+          </button>
+
+        </div>
+
+      </section>
+
+      <!-- ADVANCED -->
+      <section
+        class="settings-panel"
+        id="advanced"
+        hidden
+      >
+
+        <h2>Advanced</h2>
+
+        <div class="setting">
+
+          <div class="setting-title">
+            Local server
+          </div>
+
+          <div class="setting-description">
+            Configure your ATLAS backend connection.
+          </div>
+
+          <input
+            value="http://localhost:1234/v1"
+          >
+
+        </div>
+
+      </section>
+
+    </div>
+
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+
+/* =========================================================
+   ELEMENTS
+========================================================= */
+
+const sidebar =
+  document.getElementById("sidebar");
+
+const sidebarBackdrop =
+  document.getElementById("sidebarBackdrop");
+
+const openSidebar =
+  document.getElementById("openSidebar");
+
+const closeSidebar =
+  document.getElementById("closeSidebar");
+
+const welcomeStage =
+  document.getElementById("welcomeStage");
+
+const messages =
+  document.getElementById("messages");
+
+const messageInput =
+  document.getElementById("messageInput");
+
+const sendButton =
+  document.getElementById("sendButton");
+
+const stopButton =
+  document.getElementById("stopButton");
+
+const chatScroll =
+  document.getElementById("chatScroll");
+
+const attachButton =
+  document.getElementById("attachButton");
+
+const fileInput =
+  document.getElementById("fileInput");
+
+const attachments =
+  document.getElementById("attachments");
+
+const voiceButton =
+  document.getElementById("voiceButton");
+
+const voiceOverlay =
+  document.getElementById("voiceOverlay");
+
+const composerArea =
+  document.getElementById("composerArea");
+
+const exitVoice =
+  document.getElementById("exitVoice");
+
+const commandPaletteBackdrop =
+  document.getElementById("commandPaletteBackdrop");
+
+const commandButton =
+  document.getElementById("commandButton");
+
+const commandSearch =
+  document.getElementById("commandSearch");
+
+const settingsBackdrop =
+  document.getElementById("settingsBackdrop");
+
+const toast =
+  document.getElementById("toast");
+
+let generating = false;
+let hasStartedChat = false;
+let temporaryMode = false;
+
+
+/* =========================================================
+   SIDEBAR
+========================================================= */
+
+function showSidebar() {
+  sidebar.classList.add("open");
+  sidebarBackdrop.classList.add("show");
+}
+
+function hideSidebar() {
+  sidebar.classList.remove("open");
+  sidebarBackdrop.classList.remove("show");
+}
+
+openSidebar.addEventListener("click", showSidebar);
+closeSidebar.addEventListener("click", hideSidebar);
+sidebarBackdrop.addEventListener("click", hideSidebar);
+
+
+/* =========================================================
+   WELCOME -> CHAT TRANSITION
+========================================================= */
+
+function beginChat() {
+
+  if (hasStartedChat) return;
+
+  hasStartedChat = true;
+
+  welcomeStage.style.display = "none";
+
+  messages.classList.add("visible");
+
+}
+
+
+/* =========================================================
+   AUTO RESIZE
+========================================================= */
+
+messageInput.addEventListener("input", () => {
+
+  messageInput.style.height = "auto";
+
+  messageInput.style.height =
+    Math.min(messageInput.scrollHeight, 180) + "px";
+
+});
+
+
+/* =========================================================
+   SEND MESSAGE
+========================================================= */
+
+function sendMessage() {
+
+  const text =
+    messageInput.value.trim();
+
+  if (!text || generating) return;
+
+  beginChat();
+
+  addMessage("user", text);
+
+  messageInput.value = "";
+  messageInput.style.height = "auto";
+
+  scrollToBottom();
+
+  startGeneration();
+
+}
+
+sendButton.addEventListener("click", sendMessage);
+
+messageInput.addEventListener("keydown", event => {
+
+  if (
+    event.key === "Enter" &&
+    !event.shiftKey
+  ) {
+
+    event.preventDefault();
+
+    sendMessage();
+
+  }
+
+});
+
+
+/* =========================================================
+   MESSAGE CREATION
+========================================================= */
+
+function escapeHTML(text) {
+
+  const div =
+    document.createElement("div");
+
+  div.textContent = text;
+
+  return div.innerHTML;
+
+}
+
+function addMessage(role, text) {
+
+  const message =
+    document.createElement("article");
+
+  message.className =
+    "message " + role;
+
+  const name =
+    role === "assistant"
+      ? "ATLAS"
+      : "You";
+
+  const avatar =
+    role === "assistant"
+      ? "A"
+      : "U";
+
+  message.innerHTML = `
+
+    <div class="message-avatar">
+      ${avatar}
+    </div>
+
+    <div class="message-body">
+
+      <div class="message-header">
+
+        <span class="message-name">
+          ${name}
+        </span>
+
+        <span class="message-meta">
+          now
+        </span>
+
+      </div>
+
+      <div class="message-content">
+        ${escapeHTML(text).replace(/\n/g, "<br>")}
+      </div>
+
+      <div class="message-actions">
+
+        <button
+          class="message-action copy-message"
+          title="Copy"
+        >
+          â§‰
+        </button>
+
+        ${
+          role === "user"
+          ? `
+            <button
+              class="message-action edit-message"
+              title="Edit"
+            >
+              âœŽ
+            </button>
+
+            <button
+              class="message-action branch-message"
+              title="Branch conversation"
+            >
+              ðŸŒ¿
+            </button>
+          `
+          : `
+            <button
+              class="message-action regenerate-message"
+              title="Regenerate"
+            >
+              â†»
+            </button>
+
+            <button
+              class="message-action pin-message"
+              title="Pin"
+            >
+              ðŸ“Œ
+            </button>
+
+            <button
+              class="message-action info-message"
+              title="Response info"
+            >
+              â“˜
+            </button>
+          `
+        }
+
+      </div>
+
+    </div>
+
+  `;
+
+  messages.appendChild(message);
+
+  scrollToBottom();
+
+}
+
+
+/* =========================================================
+   TOOL ACTIVITY
+========================================================= */
+
+function addToolActivity() {
+
+  const activity =
+    document.createElement("div");
+
+  activity.className =
+    "tool-activity";
+
+  activity.innerHTML = `
+
+    <button class="tool-summary">
+      <span>
+        âŒ„ ATLAS used 3 tools
+      </span>
+
+      <span>â€º</span>
+    </button>
+
+    <div class="tool-details">
+
+      ðŸ” Searched configured sources<br>
+      ðŸ§  Retrieved relevant memory<br>
+      ðŸ“ Read project context
+
+    </div>
+
+  `;
+
+  activity
+    .querySelector(".tool-summary")
+    .addEventListener("click", () => {
+
+      activity.classList.toggle("open");
+
+    });
+
+  messages.appendChild(activity);
+
+}
+
+
+/* =========================================================
+   GENERATION DEMO
+========================================================= */
+
+function startGeneration() {
+
+  generating = true;
+
+  sendButton.style.display = "none";
+  stopButton.style.display = "grid";
+
+  const loading =
+    document.createElement("article");
+
+  loading.className =
+    "message assistant loading-message";
+
+  loading.innerHTML = `
+
+    <div class="message-avatar">
+      A
+    </div>
+
+    <div class="message-body">
+
+      <div class="message-header">
+
+        <span class="message-name">
+          ATLAS
+        </span>
+
+      </div>
+
+      <div class="message-content">
+
+        Thinking...
+
+      </div>
+
+    </div>
+
+  `;
+
+  messages.appendChild(loading);
+
+  scrollToBottom();
+
+  setTimeout(() => {
+
+    if (!generating) return;
+
+    loading.remove();
+
+    addToolActivity();
+
+    addMessage(
+      "assistant",
+      "This is where your real ATLAS backend response streams into the interface. The frontend is ready to replace this demo response with router.stream(), memory retrieval, tools, voice, and the rest of your backend pipeline."
+    );
+
+    stopGeneration();
+
+  }, 1100);
+
+}
+
+function stopGeneration() {
+
+  generating = false;
+
+  stopButton.style.display = "none";
+  sendButton.style.display = "grid";
+
+  const loading =
+    document.querySelector(".loading-message");
+
+  if (loading) {
+    loading.remove();
+  }
+
+}
+
+stopButton.addEventListener("click", () => {
+
+  stopGeneration();
+
+  showToast("Generation stopped");
+
+});
+
+
+/* =========================================================
+   MESSAGE ACTIONS
+========================================================= */
+
+document.addEventListener("click", event => {
+
+  const copy =
+    event.target.closest(".copy-message");
+
+  if (copy) {
+
+    const message =
+      copy.closest(".message");
+
+    const text =
+      message
+        .querySelector(".message-content")
+        .innerText;
+
+    navigator.clipboard.writeText(text);
+
+    showToast("Copied");
+
+  }
+
+});
+
+
+document.addEventListener("click", event => {
+
+  const edit =
+    event.target.closest(".edit-message");
+
+  if (edit) {
+
+    const message =
+      edit.closest(".message");
+
+    const content =
+      message
+        .querySelector(".message-content");
+
+    messageInput.value =
+      content.innerText;
+
+    message.remove();
+
+    messageInput.focus();
+
+    messageInput.dispatchEvent(
+      new Event("input")
+    );
+
+  }
+
+});
+
+
+document.addEventListener("click", event => {
+
+  const regenerate =
+    event.target.closest(".regenerate-message");
+
+  if (
+    regenerate &&
+    !generating
+  ) {
+
+    startGeneration();
+
+  }
+
+});
+
+
+document.addEventListener("click", event => {
+
+  const pin =
+    event.target.closest(".pin-message");
+
+  if (pin) {
+
+    showToast("Message pinned");
+
+  }
+
+});
+
+
+document.addEventListener("click", event => {
+
+  const branch =
+    event.target.closest(".branch-message");
+
+  if (branch) {
+
+    showToast("Conversation branch created");
+
+  }
+
+});
+
+
+document.addEventListener("click", event => {
+
+  const info =
+    event.target.closest(".info-message");
+
+  if (info) {
+
+    showToast(
+      "Ministral 3B Â· 42 tok/s Â· 1.2s latency"
+    );
+
+  }
+
+});
+
+
+/* =========================================================
+   ATTACHMENTS
+========================================================= */
+
+attachButton.addEventListener("click", () => {
+
+  fileInput.click();
+
+});
+
+fileInput.addEventListener("change", () => {
+
+  [...fileInput.files]
+    .forEach(file => {
+
+      addAttachment(file.name);
+
+    });
+
+});
+
+function addAttachment(name) {
+
+  const attachment =
+    document.createElement("div");
+
+  attachment.className =
+    "attachment";
+
+  attachment.innerHTML = `
+
+    ðŸ“Ž
+    <span>${escapeHTML(name)}</span>
+    <button>âœ•</button>
+
+  `;
+
+  attachment
+    .querySelector("button")
+    .addEventListener("click", () => {
+
+      attachment.remove();
+
+    });
+
+  attachments.appendChild(attachment);
+
+}
+
+
+/* =========================================================
+   DRAG DROP
+========================================================= */
+
+chatScroll.addEventListener("dragover", event => {
+
+  event.preventDefault();
+
+});
+
+chatScroll.addEventListener("drop", event => {
+
+  event.preventDefault();
+
+  [...event.dataTransfer.files]
+    .forEach(file => {
+
+      addAttachment(file.name);
+
+    });
+
+  showToast("Files attached");
+
+});
+
+
+/* =========================================================
+   NEW CHAT
+========================================================= */
+
+function resetChat() {
+
+  messages.innerHTML = "";
+
+  messages.classList.remove("visible");
+
+  welcomeStage.style.display = "";
+
+  hasStartedChat = false;
+
+  messageInput.value = "";
+
+  temporaryMode = false;
+
+  hideSidebar();
+
+  chatScroll.scrollTop = 0;
+
+  showToast("New conversation");
+
+}
+
+document
+  .getElementById("newChat")
+  .addEventListener("click", resetChat);
+
+
+/* =========================================================
+   TEMPORARY CHAT
+========================================================= */
+
+document
+  .getElementById("temporaryChat")
+  .addEventListener("click", () => {
+
+    resetChat();
+
+    temporaryMode = true;
+
+    showToast(
+      "Temporary chat Â· History and memory disabled"
+    );
+
+  });
+
+
+/* =========================================================
+   VOICE MODE
+========================================================= */
+
+function enterVoiceMode() {
+
+  voiceOverlay.classList.add("show");
+
+  composerArea.style.display = "none";
+
+}
+
+function leaveVoiceMode() {
+
+  voiceOverlay.classList.remove("show");
+
+  composerArea.style.display = "";
+
+}
+
+voiceButton.addEventListener(
+  "click",
+  enterVoiceMode
+);
+
+exitVoice.addEventListener(
+  "click",
+  leaveVoiceMode
+);
+
+document
+  .getElementById("voiceOrb")
+  .addEventListener("click", () => {
+
+    leaveVoiceMode();
+
+    messageInput.value =
+      "Voice transcription would appear here.";
+
+    messageInput.focus();
+
+    showToast("Voice captured");
+
+  });
+
+
+/* =========================================================
+   COMMAND PALETTE
+========================================================= */
+
+function openCommandPalette() {
+
+  commandPaletteBackdrop
+    .classList.add("show");
+
+  setTimeout(() => {
+
+    commandSearch.focus();
+
+  }, 50);
+
+}
+
+function closeCommandPalette() {
+
+  commandPaletteBackdrop
+    .classList.remove("show");
+
+}
+
+commandButton.addEventListener(
+  "click",
+  openCommandPalette
+);
+
+commandPaletteBackdrop
+  .addEventListener("click", event => {
+
+    if (
+      event.target ===
+      commandPaletteBackdrop
+    ) {
+
+      closeCommandPalette();
+
+    }
+
+  });
+
+
+document
+  .querySelectorAll(".command")
+  .forEach(command => {
+
+    command.addEventListener("click", () => {
+
+      const action =
+        command.dataset.action;
+
+      closeCommandPalette();
+
+      if (action === "new") {
+        resetChat();
+      }
+
+      if (action === "temporary") {
+
+        resetChat();
+
+        temporaryMode = true;
+
+        showToast(
+          "Temporary chat started"
+        );
+
+      }
+
+      if (action === "project") {
+
+        showSidebar();
+
+        showToast(
+          "Project creation is ready for your backend"
+        );
+
+      }
+
+      if (action === "voice") {
+        enterVoiceMode();
+      }
+
+      if (action === "settings") {
+        openSettings();
+      }
+
+    });
+
+  });
+
+
+/* =========================================================
+   SETTINGS
+========================================================= */
+
+function openSettings() {
+
+  hideSidebar();
+
+  settingsBackdrop
+    .classList.add("show");
+
+}
+
+function closeSettings() {
+
+  settingsBackdrop
+    .classList.remove("show");
+
+}
+
+document
+  .getElementById("settingsButton")
+  .addEventListener(
+    "click",
+    openSettings
+  );
+
+document
+  .getElementById("openSettings")
+  .addEventListener(
+    "click",
+    openSettings
+  );
+
+settingsBackdrop
+  .addEventListener("click", event => {
+
+    if (
+      event.target ===
+      settingsBackdrop
+    ) {
+
+      closeSettings();
+
+    }
+
+  });
+
+
+document
+  .querySelectorAll(".settings-nav button")
+  .forEach(button => {
+
+    button.addEventListener("click", () => {
+
+      const panel =
+        button.dataset.panel;
+
+      document
+        .querySelectorAll(
+          ".settings-nav button"
+        )
+        .forEach(btn => {
+
+          btn.classList.remove("active");
+
+        });
+
+      button.classList.add("active");
+
+      document
+        .querySelectorAll(
+          ".settings-panel"
+        )
+        .forEach(section => {
+
+          section.hidden =
+            section.id !== panel;
+
+        });
+
+    });
+
+  });
+
+
+/* =========================================================
+   SWITCHES
+========================================================= */
+
+document
+  .querySelectorAll(".switch")
+  .forEach(toggle => {
+
+    toggle.addEventListener("click", () => {
+
+      toggle.classList.toggle("on");
+
+    });
+
+  });
+
+
+/* =========================================================
+   SEARCH CHATS
+========================================================= */
+
+document
+  .getElementById("chatSearch")
+  .addEventListener("input", event => {
+
+    const query =
+      event.target.value.toLowerCase();
+
+    document
+      .querySelectorAll(
+        ".history-item, .project"
+      )
+      .forEach(item => {
+
+        const text =
+          item.innerText.toLowerCase();
+
+        item.style.display =
+          text.includes(query)
+            ? "flex"
+            : "none";
+
+      });
+
+  });
+
+
+/* =========================================================
+   EXPORT
+========================================================= */
+
+function exportChat() {
+
+  const text =
+    [...messages.querySelectorAll(".message")]
+      .map(message => {
+
+        const role =
+          message.classList.contains("assistant")
+            ? "ATLAS"
+            : "You";
+
+        const content =
+          message
+            .querySelector(".message-content")
+            ?.innerText || "";
+
+        return `${role}: ${content}`;
+
+      })
+      .join("\n\n");
+
+  const blob =
+    new Blob(
+      [text],
+      { type: "text/plain" }
+    );
+
+  const url =
+    URL.createObjectURL(blob);
+
+  const link =
+    document.createElement("a");
+
+  link.href = url;
+
+  link.download =
+    "atlas-conversation.txt";
+
+  link.click();
+
+  URL.revokeObjectURL(url);
+
+  showToast("Conversation exported");
+
+}
+
+document
+  .getElementById("exportButton")
+  .addEventListener(
+    "click",
+    exportChat
+  );
+
+document
+  .getElementById("settingsExport")
+  .addEventListener(
+    "click",
+    exportChat
+  );
+
+
+/* =========================================================
+   SUGGESTIONS
+========================================================= */
+
+document
+  .querySelectorAll(".suggestion")
+  .forEach(card => {
+
+    card.addEventListener("click", () => {
+
+      messageInput.value =
+        card
+          .querySelector("strong")
+          .innerText;
+
+      messageInput.focus();
+
+    });
+
+  });
+
+
+/* =========================================================
+   SCROLL
+========================================================= */
+
+function scrollToBottom() {
+
+  requestAnimationFrame(() => {
+
+    chatScroll.scrollTop =
+      chatScroll.scrollHeight;
+
+  });
+
+}
+
+
+/* =========================================================
+   TOAST
+========================================================= */
+
+let toastTimer;
+
+function showToast(text) {
+
+  clearTimeout(toastTimer);
+
+  toast.textContent = text;
+
+  toast.classList.add("show");
+
+  toastTimer =
+    setTimeout(() => {
+
+      toast.classList.remove("show");
+
+    }, 2200);
+
+}
+
+
+/* =========================================================
+   KEYBOARD SHORTCUTS
+========================================================= */
+
+document.addEventListener("keydown", event => {
+
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === "k"
+  ) {
+
+    event.preventDefault();
+
+    openCommandPalette();
+
+  }
+
+  if (event.key === "Escape") {
+
+    hideSidebar();
+
+    closeCommandPalette();
+
+    closeSettings();
+
+    leaveVoiceMode();
+
+  }
+
+});
+
+</script>
+
+</body>
+</html>
+

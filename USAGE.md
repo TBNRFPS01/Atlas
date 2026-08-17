@@ -54,6 +54,7 @@ Edit `config.json`:
 | `/clear` | Clear conversation |
 | `/config` | Show config |
 | `/reload` | Reload components |
+| `/auto <goal>` | Auto-complete a goal end to end (e.g. `/auto type hello`) |
 | `/exit` | Exit ATLAS |
 
 ### Natural Language
@@ -63,6 +64,10 @@ ATLAS understands:
 - "read file X"
 - "screenshot"
 - "minecraft status"
+- "open app Notepad", "type hello", "press enter", "click at 100 200"
+- "move mouse 100 200", "copy X to clipboard", "close window <title>"
+- "kill process <name>", "list windows", "running apps", "active window"
+- "complete the task: ..." (autonomous planner execution)
 - Any question about your saved memories
 
 ## Architecture

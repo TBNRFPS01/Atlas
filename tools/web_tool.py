@@ -41,9 +41,33 @@ class WebTool(Tool):
     USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ATLAS-Assistant/1.0"
 
     def _open(self, url: str, timeout: int = 20) -> str:
+        """Perform a single HTTP fetch (no retries)."""
         request = Request(url, headers={"User-Agent": self.USER_AGENT})
         with urlopen(request, timeout=timeout) as response:
+            status = getattr(response, "status", 200)
+            if status and 400 <= int(status) < 600:
+                raise RuntimeError(f"HTTP {status} from {url}")
             return response.read().decode("utf-8", errors="ignore")
+
+    def _open_with_retry(self, url: str, timeout: int = 20, retries: int = 2, backoff: float = 0.3) -> str:
+        """Fetch a URL with bounded retries and exponential backoff.
+
+        Transient network errors are retried; persistent failures raise a
+        :class:`RuntimeError` describing the last attempt.
+        """
+        import time
+
+        last_error: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                return self._open(url, timeout=timeout)
+            except Exception as exc:  # noqa: BLE001 - normalise to RuntimeError
+                last_error = exc
+                if attempt < retries:
+                    time.sleep(backoff * (2 ** attempt))
+                    continue
+                break
+        raise RuntimeError(f"Failed to fetch {url} after {retries + 1} attempts: {last_error}") from last_error
 
     def _strip_tags(self, raw: str) -> str:
         raw = re.sub(r"<script[^>]*>.*?</script>", " ", raw, flags=re.IGNORECASE | re.DOTALL)
@@ -56,13 +80,21 @@ class WebTool(Tool):
     def _fetch(self, url: str) -> str:
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
-        raw = self._open(url)
+        try:
+            raw = self._open_with_retry(url)
+        except Exception as exc:
+            return f"Web fetch failed: {exc}"
         text = self._strip_tags(raw)
         return text[:2000] if text else "No readable text found on the page."
 
     def _search(self, query: str) -> str:
+        if not query:
+            return "Search query required."
         target = f"https://lite.duckduckgo.com/lite/?q={quote_plus(query)}"
-        raw = self._open(target)
+        try:
+            raw = self._open_with_retry(target)
+        except Exception as exc:
+            return f"Web search failed: {exc}"
         anchors = re.findall(
             r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
             raw,
@@ -103,6 +135,9 @@ class WebTool(Tool):
         url = kwargs.get("url", "")
         query = kwargs.get("query", "")
 
-        if action == "fetch" or (action == "search" and url):
-            return self._fetch(url or query)
-        return self._search(query or " ".join(str(a) for a in args))
+        try:
+            if action == "fetch" or (action == "search" and url):
+                return self._fetch(url or query)
+            return self._search(query or " ".join(str(a) for a in args))
+        except Exception as exc:
+            return f"Web tool error: {exc}"

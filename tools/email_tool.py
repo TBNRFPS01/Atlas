@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import smtplib
 import ssl
 from email.mime.text import MIMEText
@@ -9,6 +11,8 @@ from email import encoders
 from typing import Optional
 
 from tools.base import Tool, ToolMetadata, ToolParameter
+
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
 
 class EmailTool(Tool):
@@ -99,16 +103,21 @@ class EmailTool(Tool):
     def _test_connection(self) -> str:
         """Test SMTP connection without sending email."""
         config = self._get_smtp_config()
-        
+
         if not config["username"] or not config["password"]:
             return "Email not configured: username/password required"
-        
+
         try:
             context = ssl.create_default_context()
-            with smtplib.SMTP(config["host"], config["port"], timeout=10) as server:
-                if config["use_tls"]:
-                    server.starttls(context=context)
-                server.login(config["username"], config["password"])
+            use_ssl = int(config["port"]) == 465
+            if use_ssl:
+                with smtplib.SMTP_SSL(config["host"], config["port"], timeout=10, context=context) as server:
+                    server.login(config["username"], config["password"])
+            else:
+                with smtplib.SMTP(config["host"], config["port"], timeout=10) as server:
+                    if config["use_tls"]:
+                        server.starttls(context=context)
+                    server.login(config["username"], config["password"])
             return "Email configuration test successful"
         except smtplib.SMTPAuthenticationError:
             return "Authentication failed: check username/password"
@@ -117,48 +126,61 @@ class EmailTool(Tool):
         except Exception as e:
             return f"Test failed: {e}"
 
+    @staticmethod
+    def _validate_recipients(recipients: list[str]) -> list[str]:
+        """Return the subset of recipients that look like valid email addresses."""
+        return [addr for addr in recipients if _EMAIL_RE.match(addr)]
+
     def _send_email(self, kwargs: dict) -> str:
         """Send an email."""
         config = self._get_smtp_config()
-        
+
         # Validate configuration
         if not config["username"] or not config["password"]:
             return "Email not configured: username/password required"
         if not config["from_addr"]:
             return "Email not configured: from address required"
-        
+
         to = kwargs.get("to", "")
         subject = kwargs.get("subject", "No Subject")
         body = kwargs.get("body", "")
         html_body = kwargs.get("html_body", "")
         attachments_str = kwargs.get("attachments", "")
-        
+
         if not to:
             return "Recipient (to) required"
         if not body and not html_body:
             return "Email body required"
-        
-        # Parse recipients
-        recipients = [addr.strip() for addr in to.split(",") if addr.strip()]
-        
+
+        # Parse and validate recipients
+        raw_recipients = [addr.strip() for addr in to.split(",") if addr.strip()]
+        recipients = self._validate_recipients(raw_recipients)
+        if not recipients:
+            return f"Invalid recipient address(es): {to}"
+        if len(recipients) != len(raw_recipients):
+            invalid = sorted(set(raw_recipients) - set(recipients))
+            return f"Invalid recipient address(es): {', '.join(invalid)}"
+
         # Create message
         msg = MIMEMultipart("alternative")
         msg["From"] = config["from_addr"]
         msg["To"] = ", ".join(recipients)
         msg["Subject"] = subject
-        
+
         # Add plain text body
         if body:
             msg.attach(MIMEText(body, "plain", "utf-8"))
-        
+
         # Add HTML body if provided
         if html_body:
             msg.attach(MIMEText(html_body, "html", "utf-8"))
-        
+
         # Handle attachments
         if attachments_str:
             attachment_paths = [p.strip() for p in attachments_str.split(",") if p.strip()]
             for path in attachment_paths:
+                if not os.path.isfile(path):
+                    return f"Attachment not found: {path}"
                 try:
                     with open(path, "rb") as f:
                         part = MIMEBase("application", "octet-stream")
@@ -171,18 +193,26 @@ class EmailTool(Tool):
                     msg.attach(part)
                 except Exception as e:
                     return f"Failed to attach {path}: {e}"
-        
+
         # Send email
         try:
             context = ssl.create_default_context()
-            with smtplib.SMTP(config["host"], config["port"], timeout=30) as server:
-                if config["use_tls"]:
-                    server.starttls(context=context)
-                server.login(config["username"], config["password"])
-                server.send_message(msg, from_addr=config["from_addr"], to_addrs=recipients)
-            
+            use_ssl = int(config["port"]) == 465
+            if use_ssl:
+                with smtplib.SMTP_SSL(config["host"], config["port"], timeout=30, context=context) as server:
+                    if config["use_tls"]:
+                        server.starttls(context=context)
+                    server.login(config["username"], config["password"])
+                    server.send_message(msg, from_addr=config["from_addr"], to_addrs=recipients)
+            else:
+                with smtplib.SMTP(config["host"], config["port"], timeout=30) as server:
+                    if config["use_tls"]:
+                        server.starttls(context=context)
+                    server.login(config["username"], config["password"])
+                    server.send_message(msg, from_addr=config["from_addr"], to_addrs=recipients)
+
             return f"Email sent successfully to {', '.join(recipients)}"
-        
+
         except smtplib.SMTPAuthenticationError:
             return "Authentication failed: check username/password"
         except smtplib.SMTPRecipientsRefused:
@@ -193,6 +223,3 @@ class EmailTool(Tool):
             return f"Server refused email data: {e}"
         except Exception as e:
             return f"Failed to send email: {e}"
-
-
-import os

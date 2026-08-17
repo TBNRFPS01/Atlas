@@ -2,27 +2,25 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 try:
-    import pyautogui
+    import pyperclip
 except Exception:  # pragma: no cover - optional runtime dependency
-    pyautogui = None
+    pyperclip = None
 
 
 class Clipboard:
     """Read from and write to the system clipboard."""
 
     def __init__(self) -> None:
-        self._enabled = pyautogui is not None
+        self._enabled = pyperclip is not None
 
     def get(self) -> str:
         """Read text from the clipboard."""
         if not self._enabled:
-            print("Automation: Warning - pyautogui not available; clipboard disabled.")
+            print("Automation: Warning - pyperclip not available; clipboard disabled.")
             return ""
         try:
-            return pyautogui.clipboard()
+            return pyperclip.paste()
         except Exception as exc:
             print(f"Automation: Warning - clipboard read failed: {exc}")
             return ""
@@ -32,7 +30,7 @@ class Clipboard:
         if not self._enabled:
             return
         try:
-            pyautogui.setClipboard(text)
+            pyperclip.copy(text)
         except Exception as exc:
             print(f"Automation: Warning - clipboard write failed: {exc}")
 

@@ -338,7 +338,6 @@ class SettingsPanel:
                  font=(FONT_FAMILY, FONT_SIZE_XS + 1), anchor="w",
                  ).pack(anchor="w", pady=(2, 8))
         entry = self._input(parent, "endpoint")
-        entry.insert(0, "http://localhost:1234/v1")
         entry.pack(fill="x")
 
     def _heading_small(self, parent: tk.Frame, text: str) -> None:

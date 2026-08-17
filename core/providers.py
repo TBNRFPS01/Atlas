@@ -158,7 +158,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
     def __init__(self, config: ProviderConfig) -> None:
         self._config = config
-        self._client = OpenAI(base_url=config.base_url, api_key=config.api_key)
+        self._client = OpenAI(base_url=config.base_url, api_key=config.api_key, timeout=15, max_retries=0)
 
     def _request_kwargs(
         self,
@@ -198,6 +198,40 @@ class OpenAICompatibleProvider(LLMProvider):
             tools,
         )
         return self._client.chat.completions.create(**kwargs)
+
+    def chat_stream(
+        self,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Iterator[str]:
+        """Stream a completion, yielding text chunks.
+
+        Mirrors the GatewayProvider streaming interface so every provider
+        presents the same ``chat_stream`` contract to callers.
+        """
+        try:
+            stream = self.chat(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+                tools=tools,
+            )
+            for chunk in stream:
+                delta = getattr(chunk.choices[0].delta, "content", None)
+                if delta:
+                    yield delta
+        except APIConnectionError:
+            yield (
+                "LM Studio connection failed: unable to reach "
+                f"{self._config.base_url}. Start LM Studio and confirm the local server is running."
+            )
+        except Exception as exc:
+            yield f"LM Studio request failed: {exc}"
 
     def is_available(self) -> bool:
         try:
@@ -266,7 +300,7 @@ class GatewayProvider(LLMProvider):
         self._base_url = base_url
         self._temperature = temperature
         self._max_tokens = max_tokens
-        self._client = OpenAI(base_url=base_url, api_key=api_key)
+        self._client = OpenAI(base_url=base_url, api_key=api_key, timeout=15, max_retries=0)
         # Ordered model pool (fallback order).
         self._models: list[str] = models or ["VerseMonster-Opus"]
         self._health: dict[str, ModelHealth] = {

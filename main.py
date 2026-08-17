@@ -15,6 +15,7 @@ from services.health_monitor import HealthMonitor
 from services.plugin_manager import PluginManager
 from services.provider_monitor import ProviderMonitor
 from tools.registry import ToolRegistry
+from utils.logger import get_logger
 from voice.controller import VoiceController
 from voice.config import VOICE_ENABLED
 
@@ -58,6 +59,8 @@ def main() -> None:
         return
 
     config = ConfigManager()
+    logger = get_logger("ATLAS")
+    logger.info("ATLAS starting up (model=%s, endpoint=%s)", config.get("model"), config.get("endpoint", "http://localhost:1234/v1"))
     event_bus = EventBus()
     memory = FactStore()
     registry = ToolRegistry()

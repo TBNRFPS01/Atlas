@@ -10,6 +10,7 @@ from memory.facts import FactStore
 from openai import APIConnectionError, OpenAI
 
 from core.providers import LocalProvider, GatewayProvider, MultiProvider, ProviderConfig
+from utils.logger import get_logger
 
 
 class MessageRole(str, Enum):
@@ -91,9 +92,50 @@ class Brain:
         # The OpenAI client library exposes complex typed overloads that
         # Pylance sometimes flags. Treat the client as `Any` to avoid
         # spurious diagnostic noise while preserving runtime behavior.
-        self.client: Any = OpenAI(base_url=self.endpoint, api_key=self.api_key)
+        self.client: Any = OpenAI(
+            base_url=self.endpoint,
+            api_key=self.api_key,
+            timeout=10,
+            max_retries=0,
+        )
         self.history: list[ConversationMessage] = []
         self.system_prompt = self.DEFAULT_SYSTEM_PROMPT
+        self.logger = get_logger("ATLAS")
+        self.provider = self._build_provider()
+
+    def _build_provider(self):
+        """Build the provider fallback stack from configuration.
+
+        Returns ``None`` when the gateway is disabled, keeping the proven
+        single-client path so the default configuration is unchanged.
+        """
+        if self.config is None or not self.config.get("gateway_enabled", False):
+            return None
+
+        gateway_key = self.config.get("gateway_api_key", "")
+        if not gateway_key:
+            return None
+
+        gateway = GatewayProvider(
+            api_key=gateway_key,
+            models=self.config.get_gateway_models(),
+            base_url=self.config.get("gateway_base_url", GatewayProvider.DEFAULT_BASE_URL),
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+        local = LocalProvider(
+            base_url=self.endpoint,
+            api_key=self.api_key,
+            model=self.model,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+
+        if self.config.get("fallback_provider", "local") != "none":
+            if self.config.get("primary_provider", "local") == "gateway":
+                return MultiProvider(primary=gateway, fallback=local)
+            return MultiProvider(primary=local, fallback=gateway)
+        return gateway
 
     def add_message(self, role: MessageRole, content: str) -> None:
         """Append a role-tagged message to the conversation history."""
@@ -191,15 +233,8 @@ class Brain:
         if self.memory_store is None:
             return ""
 
-        relevant = []
-        for term in re.findall(r"[A-Za-z0-9]+", prompt):
-            if len(term) < 3:
-                continue
-            for item in self.memory_store.search(term):
-                if item not in relevant:
-                    relevant.append(item)
-
-        return "\n".join(relevant[:5])
+        relevant = self.memory_store.retrieve(prompt, limit=5)
+        return "\n".join(r.content for r in relevant)
 
     def _extract_memories(self, prompt: str) -> None:
         """Persist notable user facts without storing greetings or duplicates."""
@@ -227,107 +262,214 @@ class Brain:
                 self.memory_store.update(key, value, category="fact")
             return
 
+    def _call_provider(self, operation: str, call) -> str:
+        """Execute a provider call with unified error handling.
+
+        Args:
+            operation: Description of the operation for error messages (e.g., "LLM", "Vision").
+            call: Callable that executes the provider request and returns a response.
+
+        Returns:
+            The extracted text response or an error message string.
+        """
+        try:
+            return self._extract_text(call())
+        except APIConnectionError:
+            self.logger.warning("%s connection failed to %s", operation, self.endpoint)
+            return (
+                "LM Studio connection failed: unable to reach "
+                f"{self.endpoint}. Start LM Studio and confirm the local server is running."
+            )
+        except Exception as exc:
+            self.logger.error("%s request failed: %s", operation, exc)
+            return f"{operation} request failed: {exc}"
+
+    def _call_provider_stream(self, operation: str, call) -> Iterator[str]:
+        """Execute a streaming provider call with unified error handling.
+
+        Args:
+            operation: Description of the operation for error messages.
+            call: Callable that returns an iterator of response chunks.
+
+        Yields:
+            Response chunks or an error message.
+        """
+        try:
+            yield from call()
+        except APIConnectionError:
+            self.logger.warning("%s streaming connection failed to %s", operation, self.endpoint)
+            yield (
+                "LM Studio connection failed: unable to reach "
+                f"{self.endpoint}. Start LM Studio and confirm the local server is running."
+            )
+        except Exception as exc:
+            self.logger.error("%s streaming request failed: %s", operation, exc)
+            yield f"{operation} request failed: {exc}"
+
     def ask(self, prompt: str) -> str:
         """Send a single user prompt to the model and remember the response."""
         self.add_message(MessageRole.USER, prompt)
         self._extract_memories(prompt)
 
-        try:
-            context = self._memory_context(prompt)
-            messages = self._history_messages()
-            if context:
-                messages.insert(1, {"role": "system", "content": f"Relevant memory context:\n{context}"})
+        context = self._memory_context(prompt)
+        messages = self._history_messages()
+        if context:
+            messages.insert(1, {"role": "system", "content": f"Relevant memory context:\n{context}"})
 
-            response = self.client.chat.completions.create(
+        def call():
+            if self.provider is not None:
+                return self.provider.chat(
+                    messages=messages,
+                    model=self._resolve_model_name(),
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    stream=False,
+                )
+            return self.client.chat.completions.create(
                 model=self._resolve_model_name(),
                 messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 stream=False,
             )
-            answer = self._extract_text(response)
+
+        answer = self._call_provider("LLM", call)
+        if not answer.startswith("LM Studio") and not answer.startswith("LLM request"):
             self.add_message(MessageRole.ASSISTANT, answer)
             self._extract_memories(answer)
-            return answer
-        except APIConnectionError:
-            return (
-                "LM Studio connection failed: unable to reach "
-                f"{self.endpoint}. Start LM Studio and confirm the local server is running."
-            )
-        except Exception as exc:
-            return f"LM Studio request failed: {exc}"
+        return answer
 
     def ask_stream(self, prompt: str) -> Iterator[str]:
         """Stream a prompt reply from the model when the local server supports it."""
         self.add_message(MessageRole.USER, prompt)
         self._extract_memories(prompt)
 
-        try:
-            context = self._memory_context(prompt)
-            messages = self._history_messages()
-            if context:
-                messages.insert(1, {"role": "system", "content": f"Relevant memory context:\n{context}"})
+        context = self._memory_context(prompt)
+        messages = self._history_messages()
+        if context:
+            messages.insert(1, {"role": "system", "content": f"Relevant memory context:\n{context}"})
 
-            stream = self.client.chat.completions.create(
+        collected: list[str] = []
+
+        def stream_call():
+            if self.provider is not None:
+                return self.provider.chat_stream(
+                    messages=messages,
+                    model=self._resolve_model_name(),
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                )
+            return self.client.chat.completions.create(
                 model=self._resolve_model_name(),
                 messages=messages,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 stream=True,
             )
-            collected: list[str] = []
+
+        def stream_wrapper():
+            stream = stream_call()
             for chunk in stream:
                 delta = getattr(chunk.choices[0].delta, "content", None)
                 if delta:
                     collected.append(delta)
                     yield delta
 
-            self.add_message(MessageRole.ASSISTANT, "".join(collected).strip())
-            self._extract_memories("".join(collected).strip())
-        except APIConnectionError:
-            yield (
-                "LM Studio connection failed: unable to reach "
-                f"{self.endpoint}. Start LM Studio and confirm the local server is running."
-            )
-        except Exception as exc:
-            yield f"LM Studio request failed: {exc}"
+        for delta in self._call_provider_stream("LLM", stream_wrapper):
+            yield delta
+
+        if collected:
+            full = "".join(collected).strip()
+            self.add_message(MessageRole.ASSISTANT, full)
+            self._extract_memories(full)
 
     def chat(self, messages: list[dict[str, str]]) -> str:
         """Send a full message history to the model without mutating the stored conversation."""
-        try:
-            response = self.client.chat.completions.create(
+
+        def call():
+            payload = [{"role": "system", "content": self.system_prompt}, *messages]
+            if self.provider is not None:
+                return self.provider.chat(
+                    messages=payload,
+                    model=self._resolve_model_name(),
+                    temperature=0.7,
+                    max_tokens=self.max_tokens,
+                    stream=False,
+                )
+            return self.client.chat.completions.create(
                 model=self._resolve_model_name(),
-                messages=[{"role": "system", "content": self.system_prompt}, *messages],
+                messages=payload,
                 temperature=0.7,
+                max_tokens=self.max_tokens,
                 stream=False,
             )
-            return self._extract_text(response)
-        except APIConnectionError:
-            return (
-                "LM Studio connection failed: unable to reach "
-                f"{self.endpoint}. Start LM Studio and confirm the local server is running."
-            )
-        except Exception as exc:
-            return f"LM Studio request failed: {exc}"
+
+        return self._call_provider("LLM chat", call)
 
     def chat_stream(self, messages: list[dict[str, str]]) -> Iterator[str]:
         """Stream a full conversation payload when the local server supports streaming."""
-        try:
-            stream = self.client.chat.completions.create(
+
+        def stream_call():
+            payload = [{"role": "system", "content": self.system_prompt}, *messages]
+            if self.provider is not None:
+                return self.provider.chat_stream(
+                    messages=payload,
+                    model=self._resolve_model_name(),
+                    temperature=0.7,
+                    max_tokens=self.max_tokens,
+                )
+            return self.client.chat.completions.create(
                 model=self._resolve_model_name(),
-                messages=[{"role": "system", "content": self.system_prompt}, *messages],
+                messages=payload,
                 temperature=0.7,
                 stream=True,
             )
+
+        def stream_wrapper():
+            stream = stream_call()
             for chunk in stream:
                 delta = getattr(chunk.choices[0].delta, "content", None)
                 if delta:
                     yield delta
-        except APIConnectionError:
-            yield (
-                "LM Studio connection failed: unable to reach "
-                f"{self.endpoint}. Start LM Studio and confirm the local server is running."
+
+        yield from self._call_provider_stream("LLM chat", stream_wrapper)
+
+    def analyze_image(self, image_bytes: bytes, prompt: str = "Describe what you see.") -> str:
+        """Send an encoded image to a vision-capable model and return its reply.
+
+        The image is embedded as a base64 data URL, which the OpenAI-compatible
+        endpoint (LM Studio) accepts when a vision model is loaded. This is a
+        standalone call and does not mutate the stored conversation history.
+        """
+        import base64
+
+        def call():
+            encoded = base64.b64encode(image_bytes).decode("ascii")
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}},
+                    ],
+                },
+            ]
+            if self.provider is not None:
+                return self.provider.chat(
+                    messages=messages,
+                    model=self._resolve_model_name(),
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    stream=False,
+                )
+            return self.client.chat.completions.create(
+                model=self._resolve_model_name(),
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=False,
             )
-        except Exception as exc:
-            yield f"LM Studio request failed: {exc}"
+
+        return self._call_provider("Vision", call)
 

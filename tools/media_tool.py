@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import platform
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 
 from tools.base import Tool, ToolMetadata, ToolParameter
+
+# Windows virtual-key codes for media transport controls.
+_VK_MEDIA_NEXT_TRACK = 0xB0
+_VK_MEDIA_PREV_TRACK = 0xB1
+_VK_MEDIA_PLAY_PAUSE = 0xB3
 
 
 class MediaTool(Tool):
@@ -132,10 +138,10 @@ class MediaTool(Tool):
             return self._stop()
         
         elif action == "next":
-            return "Next track not implemented (requires playlist support)"
+            return self._media_action("next")
         
         elif action == "previous":
-            return "Previous track not implemented (requires playlist support)"
+            return self._media_action("previous")
         
         elif action == "volume":
             volume = kwargs.get("volume")
@@ -198,8 +204,74 @@ class MediaTool(Tool):
         return self._play_file(results[0])
 
     def _pause(self) -> str:
-        """Pause/resume playback - not easily supported across platforms."""
-        return "Pause not implemented (requires player-specific control)"
+        """Pause/resume playback using the system media key."""
+        if self._send_media_key("play_pause"):
+            return "Playback paused/resumed"
+        return "Pause requires an active media session on this platform"
+
+    @staticmethod
+    def _media_key(vk_code: int) -> bool:
+        """Send a Windows media virtual-key event to the active session."""
+        if platform.system() != "Windows":
+            return False
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            user32.keybd_event(vk_code, 0, 0, 0)  # key down
+            user32.keybd_event(vk_code, 0, 2, 0)  # key up
+            return True
+        except Exception:
+            return False
+
+    def _send_media_key(self, action: str) -> bool:
+        """Dispatch a media transport key using the best backend per platform."""
+        system = platform.system()
+
+        if system == "Windows":
+            vk = {
+                "play_pause": _VK_MEDIA_PLAY_PAUSE,
+                "next": _VK_MEDIA_NEXT_TRACK,
+                "previous": _VK_MEDIA_PREV_TRACK,
+            }.get(action)
+            return self._media_key(vk) if vk is not None else False
+
+        if system == "Darwin":
+            # macOS media keys via System Events key codes.
+            code = {"play_pause": "16", "next": "17", "previous": "18"}.get(action)
+            if code is None:
+                return False
+            script = (
+                'tell application "System Events" to key code ' + code +
+                ' using {command down}'
+            )
+            try:
+                subprocess.run(["osascript", "-e", script], check=True,
+                               capture_output=True, text=True)
+                return True
+            except Exception:
+                return False
+
+        # Linux: prefer playerctl, which understands MPRIS-capable players.
+        cmd = {
+            "play_pause": ["playerctl", "play-pause"],
+            "next": ["playerctl", "next"],
+            "previous": ["playerctl", "previous"],
+        }.get(action)
+        if cmd and shutil.which(cmd[0]):
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+                return True
+            except Exception:
+                return False
+        return False
+
+    def _media_action(self, action: str) -> str:
+        """Skip to the next or previous track via the system media key."""
+        label = "next track" if action == "next" else "previous track"
+        if self._send_media_key(action):
+            return f"Skipped to {label}"
+        return f"{label.title()} requires an active media session on this platform"
 
     def _stop(self) -> str:
         """Stop current playback."""
@@ -256,6 +328,3 @@ class MediaTool(Tool):
         
         except Exception as e:
             return f"Failed to set volume: {e}"
-
-
-import shutil

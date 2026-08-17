@@ -239,6 +239,48 @@ class MemoryDatabase:
             ).fetchall()
             return [MemoryRecord(*row) for row in rows]
 
+    def retrieve(self, query: str, limit: int = 5) -> list[MemoryRecord]:
+        """Return the most relevant memories for ``query`` using a blended score.
+
+        The score combines:
+          * term overlap between the query and the stored content,
+          * the stored ``importance`` weight,
+          * how often the memory has been used (``times_used``),
+          * recency (memories updated recently rank slightly higher).
+
+        Memories with no term overlap are excluded entirely.
+        """
+        import re
+
+        terms = [t for t in re.findall(r"[a-z0-9]+", query.lower()) if len(t) > 1]
+        if not terms:
+            return []
+
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, category, content, created_at, updated_at, importance, times_used, source FROM memories"
+            ).fetchall()
+
+        now = datetime.now(timezone.utc)
+        scored: list[tuple[float, MemoryRecord]] = []
+        for row in rows:
+            record = MemoryRecord(*row)
+            content_l = record.content.lower()
+            overlap = sum(1 for t in terms if t in content_l)
+            if overlap == 0:
+                continue
+            try:
+                age_days = (now - datetime.fromisoformat(record.updated_at)).total_seconds() / 86400.0
+            except Exception:
+                age_days = 0.0
+            recency = 1.0 / (1.0 + age_days / 30.0)
+            title_boost = 2.0 if content_l.startswith(tuple(terms)) else 1.0
+            score = (overlap * 2.0 * title_boost) + float(record.importance) + float(record.times_used) * 0.5 + recency
+            scored.append((score, record))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [record for _, record in scored[:limit]]
+
     def consolidate_memories(self) -> int:
         """Merge duplicate memories and update importance scores. Returns count of merged records."""
         with sqlite3.connect(self.db_path) as conn:

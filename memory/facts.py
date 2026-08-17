@@ -58,6 +58,9 @@ class FactStore:
     def semantic_search(self, query: str, limit: int = 5) -> list[MemoryRecord]:
         return self.db.semantic_search(query, limit=limit)
 
+    def retrieve(self, query: str, limit: int = 5) -> list[MemoryRecord]:
+        return self.db.retrieve(query, limit=limit)
+
     def consolidate(self) -> int:
         return self.db.consolidate_memories()
 

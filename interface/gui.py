@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import tkinter as tk
-from tkinter import messagebox, filedialog
+from tkinter import filedialog, messagebox, simpledialog
 
 from interface.chat import ChatMessage, ChatView
 from interface.command_palette import CommandPalette
@@ -72,6 +72,22 @@ class ATLASGUI:
         self._poll_after: str | None = None
 
         self._build_window()
+
+    def create_new_project(self) -> None:
+        """Create a real ATLAS project folder on disk."""
+        name = simpledialog.askstring("New Project", "Project name:", parent=self.root)
+        if not name:
+            return
+        name = name.strip().replace(" ", "_")
+        if not name:
+            return
+        folder = Path.home() / ".atlas" / "projects" / name
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.show_toast(f"Could not create project: {exc}")
+            return
+        self.show_toast(f"Project created: {folder}")
 
     # ------------------------------------------------------------------
     # Window construction
@@ -132,7 +148,7 @@ class ATLASGUI:
         self.palette = CommandPalette(
             self.root,
             on_new=self.new_conversation,
-            on_project=lambda: self.show_toast("New project folders are ready for your backend"),
+            on_project=self.create_new_project,
             on_temporary=self.temporary_chat,
             on_voice=self.start_voice_mode,
             on_settings=self.open_settings,
