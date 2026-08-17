@@ -9,10 +9,10 @@ from tools.base import Tool, ToolMetadata, ToolParameter
 
 
 class WebTool(Tool):
-    """Search and fetch web content for ATLAS."""
+    """Search, research, and fetch web content for ATLAS."""
 
     name = "web"
-    description = "Search the web and fetch page text."
+    description = "Search the web, research a topic from multiple results, and fetch page text."
     metadata = ToolMetadata(category="web", permission_level="basic", confirmation_required=False, description=description)
 
     def get_parameters(self) -> list[ToolParameter]:
@@ -20,14 +20,14 @@ class WebTool(Tool):
             ToolParameter(
                 name="action",
                 type="string",
-                description="Web operation: search or fetch",
+                description="Web operation: search, research, or fetch",
                 required=True,
-                enum=["search", "fetch"],
+                enum=["search", "research", "fetch"],
             ),
             ToolParameter(
                 name="query",
                 type="string",
-                description="Search query (for search action)",
+                description="Search/research query",
                 required=False,
             ),
             ToolParameter(
@@ -50,11 +50,7 @@ class WebTool(Tool):
             return response.read().decode("utf-8", errors="ignore")
 
     def _open_with_retry(self, url: str, timeout: int = 20, retries: int = 2, backoff: float = 0.3) -> str:
-        """Fetch a URL with bounded retries and exponential backoff.
-
-        Transient network errors are retried; persistent failures raise a
-        :class:`RuntimeError` describing the last attempt.
-        """
+        """Fetch a URL with bounded retries and exponential backoff."""
         import time
 
         last_error: Exception | None = None
@@ -116,6 +112,51 @@ class WebTool(Tool):
             return "No search results found."
         return "\n".join(f"- {title}\n  {href}" for title, href in results)
 
+    def _research(self, query: str) -> str:
+        """Build a compact research packet from several search results.
+
+        The LLM can use the returned source titles, URLs, and page text as
+        grounded context instead of relying only on its training knowledge.
+        """
+        if not query:
+            return "Research query required."
+
+        search_target = f"https://lite.duckduckgo.com/lite/?q={quote_plus(query)}"
+        try:
+            raw = self._open_with_retry(search_target)
+        except Exception as exc:
+            return f"Web research failed during search: {exc}"
+
+        anchors = re.findall(
+            r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+            raw,
+            re.IGNORECASE | re.DOTALL,
+        )
+        results: list[tuple[str, str]] = []
+        for href, title in anchors:
+            title_text = self._strip_tags(title)
+            if not title_text:
+                continue
+            if href.startswith("//duckduckgo.com/l/"):
+                href = self._decode_uddg(href)
+            if not href.startswith(("http://", "https://")):
+                continue
+            if any(existing_url == href for _, existing_url in results):
+                continue
+            results.append((title_text, href))
+            if len(results) >= 5:
+                break
+
+        if not results:
+            return "No research sources found."
+
+        packets: list[str] = [f"Research results for: {query}"]
+        for index, (title, url) in enumerate(results, start=1):
+            text = self._fetch(url)
+            packets.append(f"\n[{index}] {title}\nURL: {url}\nContent: {text[:1600]}")
+        packets.append("\nUse the sources above as current web evidence; distinguish sourced facts from model knowledge.")
+        return "\n".join(packets)[:9000]
+
     @staticmethod
     def _decode_uddg(href: str) -> str:
         """Decode DuckDuckGo redirect-wrapped result URLs."""
@@ -138,6 +179,8 @@ class WebTool(Tool):
         try:
             if action == "fetch" or (action == "search" and url):
                 return self._fetch(url or query)
+            if action == "research":
+                return self._research(query or " ".join(str(a) for a in args))
             return self._search(query or " ".join(str(a) for a in args))
         except Exception as exc:
             return f"Web tool error: {exc}"
