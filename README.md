@@ -4,7 +4,7 @@
 
 It is built around a tool-driven agent architecture with an LLM provider layer. ATLAS can control the computer, remember information, run multi-step missions, recover from failures, use skills and plugins, interact with the web, control media such as Spotify, and expose what it is doing through debugging and observability tools.
 
-> **Current status:** V1.1 foundation is implemented and actively tested. **161 tests pass.** The UI is still being polished separately from the core agent system.
+> **Current status:** V1 foundation is implemented and actively tested. **161 tests pass.** The UI is still being polished separately from the core agent system.
 
 ## What ATLAS Can Do
 
@@ -176,7 +176,7 @@ ATLAS/
 
 ## Roadmap
 
-The core V1/V1.1 foundation is already in place. The main remaining work is product polish and real-environment validation rather than building the underlying architecture from scratch.
+The core V1 foundation is already in place. The main remaining work is product polish and real-environment validation rather than building the underlying architecture from scratch.
 
 - [ ] Finish and polish the desktop UI
 - [ ] Run full real-hardware voice E2E testing
