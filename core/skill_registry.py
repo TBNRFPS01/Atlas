@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
 
 
 @dataclass(slots=True)
@@ -63,6 +62,6 @@ class SkillRegistry:
 
     def export(self, path: str | Path) -> None:
         Path(path).write_text(
-            json.dumps([metadata.__dict__ for metadata in self.skills.values()], indent=2),
+            json.dumps([asdict(metadata) for metadata in self.skills.values()], indent=2),
             encoding="utf-8",
         )
