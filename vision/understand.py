@@ -75,7 +75,7 @@ def save_screenshot() -> str:
         return ""
     folder = Path.home() / ".atlas" / "screenshots"
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"screenshot-{datetime.now().strftime('%Y%m%d-%H%M%S')}.png"
+    path = folder / f"screenshot-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.png"
     try:
         from PIL import Image
 
