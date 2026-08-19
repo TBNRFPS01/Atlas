@@ -1,0 +1,10 @@
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "description": "Replies with a friendly greeting when triggered.",
+  "dependencies": [],
+  "permissions": [],
+  "triggers": ["say hi atlas"],
+  "tools": [],
+  "entry": "run"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "browser",
+  "version": "1.0.0",
+  "description": "Operate real websites: open pages, click, type, navigate, read content, and verify.",
+  "dependencies": ["browser"],
+  "permissions": [
+    "browser:navigate", "browser:click", "browser:type", "browser:fill",
+    "browser:scroll", "browser:screenshot", "browser:status",
+    "browser:back", "browser:forward", "browser:reload", "browser:get_text"
+  ],
+  "triggers": ["open browser", "browse to", "browser navigate", "launch browser", "go to website"],
+  "tools": ["browser"],
+  "entry": "run"
+}

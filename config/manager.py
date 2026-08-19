@@ -38,6 +38,11 @@ class ConfigDefaults:
     ocr_enabled: bool = False
     planner_enabled: bool = True
     event_log_level: str = "INFO"
+    # Autonomous goal management (background loop)
+    autonomy_enabled: bool = False
+    autonomy_interval_seconds: float = 600.0
+    autonomy_max_tasks_per_cycle: int = 2
+    learning_enabled: bool = True
     # Gateway provider configuration
     gateway_enabled: bool = False
     gateway_api_key: str = ""
@@ -118,6 +123,11 @@ class ConfigManager:
             "OCR_ENABLED": "ocr_enabled",
             "PLANNER_ENABLED": "planner_enabled",
             "EVENT_LOG_LEVEL": "event_log_level",
+            # Autonomous goal management
+            "ATLAS_AUTONOMY_ENABLED": "autonomy_enabled",
+            "ATLAS_AUTONOMY_INTERVAL": "autonomy_interval_seconds",
+            "ATLAS_AUTONOMY_MAX_TASKS": "autonomy_max_tasks_per_cycle",
+            "ATLAS_LEARNING_ENABLED": "learning_enabled",
             # Gateway provider
             "ATLAS_GATEWAY_API_KEY": "gateway_api_key",
             "ATLAS_GATEWAY_MODEL": "gateway_model",

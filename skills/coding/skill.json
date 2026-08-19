@@ -1,0 +1,10 @@
+{
+  "name": "coding",
+  "version": "1.0.0",
+  "description": "Create, read, and edit code files using the file tool.",
+  "dependencies": ["file"],
+  "permissions": ["file:read", "file:write", "file:append"],
+  "triggers": ["create a python", "write a script", "coding help", "generate code", "create a script"],
+  "tools": ["file"],
+  "entry": "run"
+}

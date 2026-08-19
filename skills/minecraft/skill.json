@@ -1,0 +1,10 @@
+{
+  "name": "minecraft",
+  "version": "1.0.0",
+  "description": "Query Minecraft server status (local process or remote server).",
+  "dependencies": ["minecraft"],
+  "permissions": ["minecraft:status"],
+  "triggers": ["minecraft"],
+  "tools": ["minecraft"],
+  "entry": "run"
+}

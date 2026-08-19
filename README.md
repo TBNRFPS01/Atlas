@@ -4,7 +4,7 @@
 
 It is built around a tool-driven agent architecture with an LLM provider layer. ATLAS can control the computer, remember information, run multi-step missions, recover from failures, use skills and plugins, interact with the web, control media such as Spotify, and expose what it is doing through debugging and observability tools.
 
-> **Current status:** V1 foundation is implemented and actively tested. **161 tests pass.** The UI is still being polished separately from the core agent system.
+> **Current status:** V1 foundation is implemented and actively tested. **253 tests pass.** The UI is still being polished separately from the core agent system.
 
 ## What ATLAS Can Do
 
@@ -14,6 +14,14 @@ It is built around a tool-driven agent architecture with an LLM provider layer. 
 - Recover from failed steps with an LLM-assisted fallback
 - Produce mission completion/failure summaries
 - Fall back to heuristic planning when an LLM plan is unavailable
+
+### 🤖 Autonomy & Learning
+- Persistent agent state that survives restarts (checkpointed plans, counters, flags)
+- Persistent, priority-ordered goals with status, progress, and round-robin selection
+- Autonomous goal advancement: `/auto <goal>` runs a full self-evaluated mission; the optional background goal service advances active goals on a schedule
+- Experience-based learning: ATLAS records which strategy/tool worked for each task type and biases future plans toward proven approaches (`/lessons`)
+- Self-evaluation after every mission: verdict, score, issues, and distilled lessons stored as retrievable memories
+- Adaptive strategy selection biases the planner prompt toward the best-known approach for the task type
 
 ### 🖥️ Computer Control
 - Launch and manage applications/windows
@@ -115,6 +123,8 @@ The safety layer protects critical paths and forbidden operations. Supported des
 
 For autonomous missions, the planner executes and verifies steps rather than blindly assuming that a successful tool call means the overall task succeeded.
 
+Autonomy is gated by default: the background goal service only runs when `autonomy_enabled` is true, advances a bounded number of steps per cycle, and runs with *agent* consent so destructive/elevated steps are parked for explicit user confirmation instead of auto-approved. Hard safety boundaries always win, and every mission's plan is checkpointed so a restart resumes the same goal rather than restarting it.
+
 ## Debugging & Observability
 
 ATLAS includes `/debug` and related diagnostics for inspecting:
@@ -178,11 +188,12 @@ ATLAS/
 
 The core V1 foundation is already in place. The main remaining work is product polish and real-environment validation rather than building the underlying architecture from scratch.
 
+- [x] Persistent agent state, goal management, experience-based learning, self-evaluation, and adaptive strategy selection
+- [x] Harden autonomous confirmation semantics (background runs never auto-approve destructive steps)
 - [ ] Finish and polish the desktop UI
 - [ ] Run full real-hardware voice E2E testing
 - [ ] Validate vision with a loaded vision model and OCR setup
 - [ ] Continue expanding edge-case/integration tests
-- [ ] Harden autonomous confirmation semantics where needed
 - [ ] Package ATLAS as a polished desktop application
 
 ## Philosophy

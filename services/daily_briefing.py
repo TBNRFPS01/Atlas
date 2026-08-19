@@ -20,9 +20,11 @@ class DailyBriefingService:
         memory: FactStore | None = None,
         run_at_startup: bool = True,
         briefing_hour: int = 9,
+        goal_manager: Any | None = None,
     ) -> None:
         self.router = router or Router()
         self.memory = memory or FactStore()
+        self.goal_manager = goal_manager
         self.run_at_startup = run_at_startup
         self.briefing_hour = briefing_hour
         self._running = False
@@ -67,7 +69,14 @@ class DailyBriefingService:
             events = [m.content for m in recent if m.category == "event"]
             goals = [m.content for m in recent if m.category == "goal"]
 
-            context = self._build_context(facts, tasks, events, goals)
+            active_goals: list[str] = []
+            if self.goal_manager is not None:
+                try:
+                    active_goals = [g.title for g in self.goal_manager.active_goals(limit=5)]
+                except Exception:
+                    active_goals = []
+
+            context = self._build_context(facts, tasks, events, goals, active_goals)
             prompt = (
                 "Generate a concise, friendly daily briefing for the user. "
                 "Include: key facts they've shared, pending tasks, upcoming events, and goals. "
@@ -88,7 +97,12 @@ class DailyBriefingService:
             pass
 
     def _build_context(
-        self, facts: list[str], tasks: list[str], events: list[str], goals: list[str]
+        self,
+        facts: list[str],
+        tasks: list[str],
+        events: list[str],
+        goals: list[str],
+        active_goals: list[str] | None = None,
     ) -> str:
         parts = []
         if facts:
@@ -99,6 +113,8 @@ class DailyBriefingService:
             parts.append("Events: " + "; ".join(events[:5]))
         if goals:
             parts.append("Goals: " + "; ".join(goals[:5]))
+        if active_goals:
+            parts.append("Active tracked goals: " + "; ".join(active_goals[:5]))
         return "\n".join(parts) if parts else "No recent memories."
 
     def trigger_now(self) -> None:

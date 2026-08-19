@@ -8,7 +8,6 @@ import time
 from collections import defaultdict
 from typing import Any
 
-from core.router import Router
 from planner.task import Task, TaskStatus
 
 
@@ -25,17 +24,28 @@ class Planner:
         "If no tool fits, use null. Output ONLY valid JSON array. No markdown, no explanation."
     )
 
-    def __init__(self, router: Router | None = None) -> None:
-        self.router = router or Router()
+    def __init__(self, router: "Router | None" = None) -> None:
+        # Imported lazily to avoid a circular import: core.router imports
+        # planner.evaluator, and this module references the Router type.
+        if router is None:
+            from core.router import Router
+
+            router = Router()
+        self.router = router
         self._tasks: dict[str, Task] = {}
         self._task_order: list[str] = []
 
-    def create_plan(self, goal: str) -> list[Task]:
-        """Break a goal into a sequence of executable tasks."""
+    def create_plan(self, goal: str, strategy_hint: str | None = None) -> list[Task]:
+        """Break a goal into a sequence of executable tasks.
+
+        ``strategy_hint`` is an optional plain-text hint (typically produced by
+        :class:`planner.strategies.StrategySelector`) that biases the LLM
+        decomposition toward a proven approach.
+        """
         self._tasks.clear()
         self._task_order.clear()
 
-        steps = self._decompose(goal)
+        steps = self._decompose(goal, strategy_hint=strategy_hint)
         for i, step in enumerate(steps):
             task = Task(
                 id=f"task_{i}",
@@ -48,9 +58,31 @@ class Planner:
 
         return [self._tasks[tid] for tid in self._task_order]
 
-    def _decompose(self, goal: str) -> list[dict[str, Any]]:
+    def create_plan_from_steps(self, goal: str, steps: list[dict[str, Any]]) -> list[Task]:
+        """Rebuild a plan from a previously checkpointed step list.
+
+        Used by the autonomy controller to resume a mission after a restart
+        without re-decomposing (and possibly re-interpreting) the goal.
+        """
+        self._tasks.clear()
+        self._task_order.clear()
+        for i, step in enumerate(steps):
+            task = Task(
+                id=f"task_{i}",
+                description=step.get("description", ""),
+                tool_name=step.get("tool_name") or "",
+                tool_args=step.get("tool_args", {}) or {},
+            )
+            self._tasks[task.id] = task
+            self._task_order.append(task.id)
+        return [self._tasks[tid] for tid in self._task_order]
+
+    def _decompose(self, goal: str, strategy_hint: str | None = None) -> list[dict[str, Any]]:
         """Use LLM to convert a goal into structured steps with tool assignments."""
-        prompt = f"{self.SYSTEM_DECOMPOSE}\n\nGoal: {goal}\n\nReturn the JSON array only."
+        prompt = f"{self.SYSTEM_DECOMPOSE}\n\nGoal: {goal}"
+        if strategy_hint:
+            prompt += f"\n\n{strategy_hint}"
+        prompt += "\n\nReturn the JSON array only."
         try:
             response = self.router.brain.ask(prompt)
             data = json.loads(response)
@@ -117,8 +149,14 @@ class Planner:
             return [{"description": goal, "tool_name": "web", "tool_args": {"action": "search", "query": goal}}]
         return [{"description": f"Process goal: {goal}", "tool_name": None, "tool_args": {}}]
 
-    def execute(self, task_id: str) -> Task:
-        """Execute a single task, retrying on transient failures."""
+    def execute(self, task_id: str, consent: str = "user") -> Task:
+        """Execute a single task, retrying on transient failures.
+
+        ``consent`` is ``"user"`` (autonomous mode treats destructive steps as
+        user-confirmed, matching ``/auto`` semantics) or ``"agent"`` (a
+        background run that must never auto-approve destructive/elevated
+        steps unless an explicit permission rule allows them).
+        """
         task = self._tasks.get(task_id)
         if task is None:
             raise ValueError(f"Unknown task: {task_id}")
@@ -129,11 +167,16 @@ class Planner:
         while True:
             try:
                 if task.tool_name:
-                    result = self._execute_tool(task)
+                    result = self._execute_tool(task, consent=consent)
                 else:
                     result = self.router.route(task.description)
 
                 task.complete(result)
+                return task
+            except PermissionError as exc:
+                # Policy/safety denials are deterministic, not transient:
+                # never hammer them with retries.
+                task.fail(str(exc))
                 return task
             except Exception as exc:
                 last_error = str(exc)
@@ -144,13 +187,14 @@ class Planner:
                 task.fail(last_error)
                 return task
 
-    def _execute_tool(self, task: Task) -> str:
+    def _execute_tool(self, task: Task, consent: str = "user") -> str:
         """Execute a tool by name with the task's arguments.
 
         In autonomous mode destructive/permission-gated actions are allowed
-        only if no explicit deny rule exists; an autonomous run is treated as
-        pre-confirmed so a destructive step still proceeds. ``deny`` rules,
-        however, are always honoured.
+        only if no explicit deny rule exists; a user-initiated autonomous run
+        is treated as pre-confirmed so a destructive step still proceeds.
+        ``deny`` rules, however, are always honoured. Background (``agent``)
+        consent additionally refuses to auto-approve ``ask`` outcomes.
         """
         registry = getattr(self, "_registry", None)
         if registry is None:
@@ -164,18 +208,24 @@ class Planner:
         if tool is None:
             raise ValueError(f"Tool not found: {task.tool_name}")
 
-        decision = self._permission_decision(task.tool_name, task.tool_args)
+        decision = self._permission_decision(task.tool_name, task.tool_args, consent=consent)
         if decision == "deny":
             raise PermissionError(f"Permission denied for {task.tool_name} by policy")
+        if decision == "ask":
+            raise PermissionError(
+                f"{task.tool_name} requires user confirmation before it can run in the background"
+            )
 
         return tool.execute(**task.tool_args)
 
-    def _permission_decision(self, tool_name: str, tool_args: dict) -> str:
+    def _permission_decision(self, tool_name: str, tool_args: dict, consent: str = "user") -> str:
         """Resolve the permission outcome for a planner tool step.
 
         Returns ``"deny"``, ``"ask"`` or ``"allow"``. Hard safety boundaries
-        always win, and autonomous execution is treated as confirmed so only
-        explicit ``deny`` rules or safety violations stop a step.
+        always win. A user-initiated autonomous run is treated as confirmed so
+        only explicit ``deny`` rules or safety violations stop a step; a
+        background (``agent``) run refuses ``ask`` outcomes so it can never
+        quietly approve destructive/elevated work.
         """
         router = getattr(self, "router", None)
         if router is not None:
@@ -191,6 +241,8 @@ class Planner:
             return "allow"
 
         action = str(tool_args.get("action", "") or "")
+        if consent == "agent":
+            return manager.decide(tool_name, action, confirmed=False)
         # Autonomous runs act without prompting: treat as confirmed.
         return manager.decide(tool_name, action, confirmed=True)
 
@@ -211,7 +263,7 @@ class Planner:
         )
         return not any(marker in result for marker in failure_markers)
 
-    def _recover_task(self, task: Task) -> Task:
+    def _recover_task(self, task: Task, consent: str = "user") -> Task:
         """Attempt a single LLM-guided recovery for a failed/verified-bad task.
 
         The planner asks the brain to propose one alternative step that achieves
@@ -244,26 +296,26 @@ class Planner:
                 task.status = TaskStatus.PENDING
                 task.error = ""
                 task.result = ""
-                return self.execute(task.id)
+                return self.execute(task.id, consent=consent)
         except Exception:
             pass
         return task
 
-    def run_plan(self, goal: str) -> dict[str, Any]:
+    def run_plan(self, goal: str, strategy_hint: str | None = None, consent: str = "user") -> dict[str, Any]:
         """Create and execute a plan from a goal description.
 
         After each step, the plan is verified; a single LLM-guided recovery is
         attempted for any step that fails or fails verification before the plan
         reports overall failure.
         """
-        tasks = self.create_plan(goal)
+        tasks = self.create_plan(goal, strategy_hint=strategy_hint)
         results = []
         failed = False
 
         for task in tasks:
-            result = self.execute(task.id)
+            result = self.execute(task.id, consent=consent)
             if not self._verify_task(task):
-                recovered = self._recover_task(task)
+                recovered = self._recover_task(task, consent=consent)
                 if self._verify_task(recovered):
                     task = recovered
                 else:
@@ -288,7 +340,7 @@ class Planner:
             "tasks": results,
         }
 
-    def run_mission(self, goal: str) -> dict[str, Any]:
+    def run_mission(self, goal: str, strategy_hint: str | None = None, consent: str = "user") -> dict[str, Any]:
         """Run a goal as a full mission and produce a finish report.
 
         Extends :meth:`run_plan` with a higher-level summary: how many steps
@@ -296,7 +348,7 @@ class Planner:
         overall mission finished successfully. This is the top of the agent
         loop: plan -> execute -> verify -> recover -> finish.
         """
-        plan = self.run_plan(goal)
+        plan = self.run_plan(goal, strategy_hint=strategy_hint, consent=consent)
         tasks = plan.get("tasks", [])
         completed = sum(1 for t in tasks if t["status"] == "completed")
         failed = sum(1 for t in tasks if t["status"] == "failed")

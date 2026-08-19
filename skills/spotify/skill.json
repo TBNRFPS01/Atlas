@@ -1,0 +1,10 @@
+{
+  "name": "spotify",
+  "version": "1.0.0",
+  "description": "Control Spotify playback, search, and device selection.",
+  "dependencies": ["spotify"],
+  "permissions": ["spotify:play", "spotify:control"],
+  "triggers": ["^spotify "],
+  "tools": ["spotify"],
+  "entry": "run"
+}

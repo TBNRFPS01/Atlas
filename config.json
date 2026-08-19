@@ -18,5 +18,9 @@
   "debug_mode": true,
   "theme": "dark",
   "context_strategy": "Automatic",
-  "endpoint": "http://localhost:1234/v1"
+  "endpoint": "http://localhost:1234/v1",
+  "autonomy_enabled": false,
+  "autonomy_interval_seconds": 600,
+  "autonomy_max_tasks_per_cycle": 2,
+  "learning_enabled": true
 }

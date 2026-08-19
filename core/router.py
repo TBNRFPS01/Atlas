@@ -4,13 +4,19 @@ import re
 from collections.abc import Iterator
 from typing import Any
 
+from core.autonomy import AutonomyController
 from core.brain import Brain
 from core.personality import ATLASPersonality
 from core.permissions import Decision, PermissionManager
 from core.safety import HardSafety, SafetyViolation
-from core.skills import load_skills
+from core.skill_manager import SkillManager
 from core.undo import UndoStack
+from memory.experience import ExperienceStore
 from memory.facts import FactStore
+from memory.goals import GoalManager
+from memory.state import AgentStateStore
+from planner.evaluator import SelfEvaluator
+from planner.strategies import StrategySelector
 
 
 class Router:
@@ -29,6 +35,10 @@ class Router:
         memory: FactStore | None = None,
         registry=None,
         config=None,
+        state_store: AgentStateStore | None = None,
+        goals: GoalManager | None = None,
+        experiences: ExperienceStore | None = None,
+        autonomy: AutonomyController | None = None,
     ) -> None:
         # Optional voice controller attached at runtime by main; annotate
         # here so Pylance knows the attribute exists.
@@ -39,17 +49,43 @@ class Router:
         self._undo = UndoStack()
         self._trace: list[str] = []
         self._call_log: list[dict[str, Any]] = []
-        self._skills = load_skills()
-        self.brain = brain or Brain()
-        self.personality = personality or ATLASPersonality()
-        self.memory = memory or FactStore()
         if registry is None:
             from tools.registry import ToolRegistry
 
             registry = ToolRegistry()
             registry.discover()
         self._registry = registry
+        self.brain = brain or Brain()
+        self.personality = personality or ATLASPersonality()
+        self.memory = memory or FactStore()
+        # Skill system: discover + validate + load declarative skill packages.
+        # Skills integrate with the existing permission/safety layers rather
+        # than introducing a second policy system.
+        self._skill_manager = SkillManager(
+            skills_dir="skills",
+            permission_manager=self._permissions,
+            safety=self._safety,
+            registry=self._registry,
+        )
+        self._skill_manager.load_all()
+        self._skills = self._skill_manager.list()
         self._config = config
+
+        # Persistent agent state, goals, and learned experience. These share
+        # the same SQLite file as the fact store so everything survives restarts.
+        self._state = state_store or AgentStateStore()
+        self._goals = goals or GoalManager(memory=self.memory)
+        self._experiences = experiences or ExperienceStore(memory=self.memory)
+        self._strategy_selector = StrategySelector()
+        self._self_evaluator = SelfEvaluator(experiences=self._experiences, brain=self.brain)
+        self._autonomy = autonomy or AutonomyController(
+            router=self,
+            state_store=self._state,
+            goals=self._goals,
+            experiences=self._experiences,
+            selector=self._strategy_selector,
+            evaluator=self._self_evaluator,
+        )
 
     def route(self, prompt: str) -> str:
         lowered = prompt.lower().strip()
@@ -58,7 +94,7 @@ class Router:
             goal = prompt[5:].strip()
             if not goal:
                 return self.personality.respond("Usage: /auto <goal>  e.g. /auto open VS Code and take a screenshot")
-            return self.personality.respond(self._run_task(goal))
+            return self.personality.respond(self._run_autonomous_mission(goal))
 
         if lowered.startswith("/"):
             return self.personality.respond(self._handle_command(lowered))
@@ -80,18 +116,19 @@ class Router:
 
         if self._skills:
             for skill in self._skills:
-                if skill["trigger"] in lowered:
-                    return self.personality.respond(skill["run"](self, prompt))
+                if skill.enabled and skill.valid and skill.matches(lowered):
+                    ok, reason = self._skill_manager.can_run(skill)
+                    if not ok:
+                        self._record_trace("skill", skill.name, "blocked")
+                        return self.personality.respond(f"Skill '{skill.name}' blocked: {reason}")
+                    return self.personality.respond(skill.run(self, prompt))
 
-        # Direct Spotify commands (bypass tool request detection which requires action verbs)
+        # Direct Spotify commands (fallback if the spotify skill is unavailable)
         if lowered.startswith("spotify "):
             tool = self._registry.get("spotify")
             if tool is None:
                 return self.personality.respond("Spotify tool not loaded.")
-            return self.personality.respond(self._timed_tool_call(
-                "spotify", "dispatch",
-                lambda: tool.execute(**self._parse_spotify_args(prompt)),
-            ))
+            return self.personality.respond(self._spotify_request(prompt))
 
         if self._looks_like_tool_request(prompt, lowered):
             return self.personality.respond(self._dispatch_tool(lowered))
@@ -103,7 +140,7 @@ class Router:
 
         if lowered.startswith("/auto"):
             goal = prompt[5:].strip()
-            yield self._run_task(goal) if goal else "Usage: /auto <goal>"
+            yield self._run_autonomous_mission(goal) if goal else "Usage: /auto <goal>"
             return
 
         if lowered.startswith("/"):
@@ -132,8 +169,12 @@ class Router:
 
         if self._skills:
             for skill in self._skills:
-                if skill["trigger"] in lowered:
-                    yield skill["run"](self, prompt)
+                if skill.enabled and skill.valid and skill.matches(lowered):
+                    ok, reason = self._skill_manager.can_run(skill)
+                    if not ok:
+                        yield f"Skill '{skill.name}' blocked: {reason}"
+                        return
+                    yield skill.run(self, prompt)
                     return
 
         if self._looks_like_tool_request(prompt, lowered):
@@ -219,6 +260,9 @@ class Router:
         "delete file", "append to file", "list folder", "list directory",
         "search the web", "search web for", "look up", "browse to",
         "open website", "open url", "fetch url", "minecraft status",
+        "open browser", "browse to", "click on", "type into", "fill form",
+        "navigate to", "browser navigate", "browser click", "browser type",
+        "browser screenshot", "browser status", "read the page", "read page",
         "take a screenshot", "take screenshot", "capture screen",
         "run ocr", "read the screen", "open camera", "take a photo",
         "open app", "launch app", "open application", "launch application",
@@ -491,7 +535,11 @@ class Router:
         match = pattern.search(text)
         return match.group(0) if match else ""
 
-    def _minecraft_status(self, prompt: str) -> str:
+    def _minecraft_status(self, _prompt: str) -> str:
+        """Deprecated alias; use :meth:`_minecraft_request`."""
+        return self._minecraft_request(_prompt)
+
+    def _minecraft_request(self, prompt: str) -> str:
         """Report Minecraft status, querying a server when one is mentioned."""
         tool = self._registry.get("minecraft")
         if tool is not None:
@@ -502,6 +550,103 @@ class Router:
         from tools.minecraft import minecraft_status
 
         return minecraft_status()
+
+    def _spotify_request(self, prompt: str) -> str:
+        """Dispatch a Spotify command using the loaded SpotifyTool."""
+        tool = self._registry.get("spotify")
+        if tool is None:
+            return "Spotify tool not loaded."
+        return self._timed_tool_call(
+            "spotify", "dispatch",
+            lambda: tool.execute(**self._parse_spotify_args(prompt)),
+        )
+
+    def _browser_request(self, prompt: str) -> str:
+        """Handle browser automation requests with natural-language parsing."""
+        lowered = prompt.lower().strip()
+        tool = self._registry.get("browser")
+        if tool is None:
+            return "Browser tool not loaded."
+
+        action, args = self._build_browser_args(prompt, lowered)
+
+        # Browser actions are gated by hard-safety boundaries and deny rules,
+        # but are otherwise allowed by default so the agent can operate sites
+        # autonomously. (An explicit deny rule still blocks them.)
+        gate = self._authorize("browser", action, permission_level="basic",
+                               confirmation_required=False, prompt=prompt)
+        if gate:
+            return gate
+
+        return self._timed_tool_call(
+            "browser", action,
+            lambda: tool.execute(**args),
+        )
+
+    def _build_browser_args(self, prompt: str, lowered: str) -> tuple[str, dict[str, Any]]:
+        """Parse a natural-language browser command into BrowserTool args."""
+
+        def _strip_to(target: str) -> str:
+            target = target.strip().strip("\"'")
+            if target.lower().startswith("to "):
+                target = target[3:].strip()
+            return target
+
+        # Direct navigation.
+        for prefix in ("browser navigate ", "browser open ", "open browser ", "browse to ", "navigate to ", "open url ", "open website "):
+            if lowered.startswith(prefix):
+                target = _strip_to(prompt[len(prefix):])
+                return "navigate", {"action": "navigate", "url": target}
+
+        if "browser click" in lowered or "click on" in lowered or ("click " in lowered and "browser" in lowered):
+            sel = self._after_phrase(prompt, "click on") or self._after_phrase(prompt, "click")
+            return "click", {"action": "click", "selector": sel}
+
+        if "browser type" in lowered or "type into" in lowered or ("type " in lowered and "browser" in lowered):
+            if "type into" in lowered:
+                head = self._after_phrase(prompt, "type into")
+            else:
+                head = self._after_phrase(prompt, "browser type")
+            selector = head
+            text = ""
+            if " with " in lowered:
+                selector, _, text = head.partition(" with ")
+                text = text.strip().strip("\"'")
+            return "type", {"action": "type", "selector": selector.strip(), "text": text}
+
+        if "fill" in lowered or "fill form" in lowered:
+            sel = self._after_phrase(prompt, "fill")
+            text = ""
+            if " with " in lowered:
+                sel, _, text = sel.partition(" with ")
+                text = text.strip().strip("\"'")
+            return "fill", {"action": "fill", "selector": sel.strip(), "text": text}
+
+        if "browser scroll" in lowered or "scroll down" in lowered or "scroll up" in lowered:
+            direction = "up" if "scroll up" in lowered else "down"
+            amount = 300
+            m = re.search(r"-?\d+", lowered)
+            if m:
+                amount = int(m.group())
+            return "scroll", {"action": "scroll", "direction": direction, "amount": amount}
+
+        if "browser screenshot" in lowered or lowered.startswith("screenshot "):
+            return "screenshot", {"action": "screenshot"}
+
+        if "browser status" in lowered or "browser state" in lowered:
+            return "status", {"action": "status"}
+
+        if "read the page" in lowered or "read page" in lowered or "page text" in lowered:
+            return "get_text", {"action": "get_text"}
+
+        if "close browser" in lowered or "quit browser" in lowered:
+            return "close", {"action": "close"}
+
+        # Default: treat the whole message as a navigation target.
+        url = self._extract_url(lowered)
+        if url:
+            return "navigate", {"action": "navigate", "url": url}
+        return "status", {"action": "status"}
 
     def _planner(self):
         """Lazily build the task planner bound to this router."""
@@ -524,7 +669,8 @@ class Router:
 
     def _run_task(self, goal: str) -> str:
         """Decompose a goal and execute it end to end, reporting each step."""
-        plan = self._planner().run_plan(goal)
+        selection = self._strategy_selector.select(goal, experiences=self._experiences)
+        plan = self._planner().run_plan(goal, strategy_hint=selection.hint)
         lines = [f"Goal: {plan['goal']}", f"Success: {plan['success']}"]
         for task in plan["tasks"]:
             lines.append(f"- [{task['status']}] {task['description']}")
@@ -532,6 +678,135 @@ class Router:
                 lines.append(f"    -> {task['result'][:200]}")
             if task["error"]:
                 lines.append(f"    ! {task['error']}")
+        return "\n".join(lines)
+
+    def _run_autonomous_mission(self, goal: str) -> str:
+        """Run ``/auto``: a persistent, adaptive, self-evaluated mission."""
+        try:
+            report = self._autonomy.run_auto(goal)
+            text = report.to_text()
+        except Exception as exc:
+            text = f"Autonomous mission failed to start: {exc}"
+        return text
+
+    # -- persistent goals / learning -----------------------------------
+    def _goals_command(self, command: str) -> str:
+        """Handle ``/goals`` and its subcommands."""
+        lowered = command.strip().lower()
+
+        if lowered == "/goals":
+            goals = self._goals.list_goals(limit=20)
+            if not goals:
+                return (
+                    "No goals yet. Create one with '/goals add <title>' or run "
+                    "'/auto <goal>' which saves a tracked goal automatically."
+                )
+            lines = ["Goals (status / priority / progress):"]
+            for g in goals:
+                marker = {"active": "►", "paused": "‖", "blocked": "●", "done": "✓", "abandoned": "✕"}.get(g.status, "?")
+                lines.append(f"#{g.id} {marker} {g.title} [{g.status}, p{g.priority:.0f}, {g.progress*100:.0f}%]")
+                if g.meta.get("block_reason"):
+                    lines.append(f"     blocked: {g.meta['block_reason']}")
+            return "\n".join(lines)
+
+        parts = lowered.split(maxsplit=2)
+
+        if len(parts) < 2:
+            return (
+                "Usage: /goals add <title> | done <id> | pause <id> | resume <id> | "
+                "abandon <id> | priority <id> <value> | next"
+            )
+
+        _, sub = parts[0], parts[1]
+
+        if sub == "add":
+            title = command.split(maxsplit=2)[2].strip() if len(parts) > 2 else ""
+            if not title:
+                return "Usage: /goals add <title>"
+            goal = self._goals.create_goal(title, source="user")
+            return f"Goal #{goal.id} created: {goal.title}"
+
+        if sub == "next":
+            goal = self._goals.pick_next()
+            if goal is None:
+                return "No active goals to advance. Add one with '/goals add <title>'."
+            report = self._autonomy.advance_goal(goal.id, max_tasks=1, consent="user")
+            return report.to_text()
+
+        goal_id = self._parse_goal_id(parts[2]) if len(parts) > 2 else None
+        if goal_id is None:
+            return "A numeric goal id is required."
+
+        if sub == "done":
+            updated = self._goals.complete_goal(goal_id)
+            return f"Goal #{goal_id} marked done." if updated else f"No goal #{goal_id}."
+        if sub == "pause":
+            updated = self._goals.pause_goal(goal_id)
+            return f"Goal #{goal_id} paused." if updated else f"No goal #{goal_id}."
+        if sub == "resume":
+            updated = self._goals.resume_goal(goal_id)
+            return f"Goal #{goal_id} resumed (active again)." if updated else f"No goal #{goal_id}."
+        if sub == "abandon":
+            updated = self._goals.abandon_goal(goal_id)
+            return f"Goal #{goal_id} abandoned." if updated else f"No goal #{goal_id}."
+        if sub == "priority":
+            rest = parts[2].split()
+            if len(rest) < 2:
+                return "Usage: /goals priority <id> <value>"
+            try:
+                value = float(rest[1])
+            except ValueError:
+                return "Priority must be a number."
+            updated = self._goals.update_goal(goal_id, priority=value)
+            return f"Goal #{goal_id} priority set to {value}." if updated else f"No goal #{goal_id}."
+
+        return f"Unknown subcommand '{sub}'. Run /help for the goals syntax."
+
+    @staticmethod
+    def _parse_goal_id(part: str) -> int | None:
+        import re as _re
+
+        match = _re.search(r"\d+", part)
+        if not match:
+            return None
+        try:
+            return int(match.group())
+        except ValueError:
+            return None
+
+    def _lessons_report(self) -> str:
+        """Show what ATLAS has learned so far (experience + lessons)."""
+        lines = ["Learned strategies (task type -> approach, success rate, runs):"]
+        strategies = self._experiences.all_strategies(limit=8)
+        if not strategies:
+            lines.append("  (no recorded attempts yet - run /auto or complete goals to build experience)")
+        else:
+            for s in strategies:
+                lines.append(
+                    f"  {s['task_type']} -> {s['strategy_key']} "
+                    f"({s['avg_success']:.0%} across {s['run_count']} run(s))"
+                )
+        lessons = self._experiences.recent_lessons(limit=5)
+        if lessons:
+            lines.append("Recent lessons:")
+            for lesson in lessons:
+                lines.append(f"  - {lesson[:200]}")
+        return "\n".join(lines)
+
+    def _state_report(self) -> str:
+        """Show the persistent agent state snapshot (non-sensitive)."""
+        state = self._state.all()
+        goals = self._goals.active_goals(limit=5)
+        lines = [
+            "Persistent agent state:",
+            f"  State keys: {self._state.count()}",
+            f"  Active goals: {len(goals)}",
+            f"  Strategy pairs recorded: {self._experiences.count()}",
+        ]
+        for key in sorted(state)[:8]:
+            value = state[key]
+            preview = str(value)[:80]
+            lines.append(f"    {key} = {preview}")
         return "\n".join(lines)
 
     # Automation keywords handled without a full planner plan.
@@ -643,7 +918,16 @@ class Router:
                 if "clipboard to" in lowered:
                     text = prompt.split("clipboard to", 1)[1].strip().strip("\"'")
                 elif "to clipboard" in lowered:
-                    text = (prompt.split("copy", 1)[-1].split("to clipboard", 1)[0]).strip().strip("\"'")
+                    # Handle both "copy X to clipboard" and "copy to clipboard X"
+                    # First try to get text after "to clipboard"
+                    parts = prompt.split("to clipboard", 1)
+                    if len(parts) > 1 and parts[1].strip():
+                        text = parts[1].strip().strip("\"'")
+                    else:
+                        # Try "copy X to clipboard" pattern - text is between "copy" and "to clipboard"
+                        copy_parts = prompt.split("copy", 1)
+                        if len(copy_parts) > 1:
+                            text = copy_parts[1].split("to clipboard", 1)[0].strip().strip("\"'")
                 return {"action": "clipboard_set", "text": text}
             return {"action": "clipboard_get"}
 
@@ -800,13 +1084,19 @@ class Router:
             f"Brain provider: {getattr(self.brain, 'provider_name', 'unknown')}",
             f"Gateway enabled: {getattr(self.brain, 'gateway_enabled', False)}",
             f"Loaded tools ({len(self._registry.list())}): {', '.join(self._registry.list())}",
-            f"Loaded skills ({len(self._skills)}): {', '.join(s['name'] for s in self._skills) or 'none'}",
+            f"Loaded skills ({len(self._skills)}): {', '.join(f'{s.name} v{s.version}' for s in self._skills) or 'none'}",
             f"Undo available: {self._undo.can_undo()}",
         ]
         try:
             lines.append(f"Memory entries: {len(self.memory.search(''))}")
         except Exception:
             lines.append("Memory entries: unavailable")
+
+        lines.append(
+            f"Autonomy: {len(self._goals.active_goals())} active goals · "
+            f"{self._experiences.count()} strategy pairs · "
+            f"{self._state.count()} state keys"
+        )
 
         lines.append("Permission rules:")
         if self._permissions._rules:
@@ -843,7 +1133,10 @@ class Router:
             return self._take_screenshot()
 
         if "minecraft" in lowered:
-            return self._minecraft_status(lowered)
+            return self._minecraft_request(prompt)
+
+        if any(k in lowered for k in ("browser", "browse", "click on", "type into", "fill form", "navigate to", "open website", "open url")):
+            return self._browser_request(prompt)
 
         if "email" in lowered or "send mail" in lowered or "send email" in lowered:
             tool = self._registry.get("email")
@@ -899,7 +1192,31 @@ class Router:
         command = command.lower()
 
         if command == "/help":
-            return "Commands: /help, /status, /tools, /memory, /debug, /undo, /skills, /screen, /clear, /config, /reload, /exit, /vision"
+            return (
+                "Commands: /help, /status, /tools, /memory, /debug, /undo, /skills, "
+                "/screen, /browser, /clear, /config, /reload, /exit, /vision\n"
+                "Autonomy: /auto <goal>, /goals, /goals add <title>, /goals done <id>, "
+                "/goals pause <id>, /goals resume <id>, /goals priority <id> <value>, /goals next\n"
+                "Learning: /lessons, /state"
+            )
+
+        if command == "/browser":
+            return (
+                "Browser commands (ATLAS operates real websites):\n"
+                "  browser navigate to <url>\n"
+                "  browser click <selector or text>\n"
+                "  browser type <selector> with <text>\n"
+                "  browser fill <selector> with <text>\n"
+                "  browser scroll <up|down> [amount]\n"
+                "  browser screenshot\n"
+                "  browser status\n"
+                "  read the page\n"
+                "  close browser\n"
+                "Sessions (cookies/login) are persisted between runs."
+            )
+
+        if command.startswith("/browser "):
+            return self._browser_request(prompt[len("/browser "):].strip())
 
         if command == "/vision":
             return self._take_screenshot()
@@ -911,17 +1228,39 @@ class Router:
             return self._undo.undo()
 
         if command == "/skills":
-            if not self._skills:
-                return "No skills loaded. Drop a SKILL module into the skills/ folder."
-            return "Loaded skills:\n" + "\n".join(f"- {s['name']}: {s['description']}" for s in self._skills)
+            status = self._skill_manager.status()
+            if not status["skills"]:
+                return "No skills loaded. Drop a skill package into the skills/ folder."
+            lines = ["Loaded skills:"]
+            for s in status["skills"]:
+                trust = "trusted" if s["trusted"] else "untrusted"
+                state = "ready" if (s["valid"] and s["enabled"]) else f"blocked: {s['error']}"
+                lines.append(f"- {s['name']} v{s['version']} [{trust}] ({state})")
+                lines.append(f"    {s['description']}")
+                if s["permissions"]:
+                    lines.append(f"    permissions: {', '.join(s['permissions'])}")
+                if s["triggers"]:
+                    lines.append(f"    triggers: {', '.join(s['triggers'])}")
+            if status["rejected"]:
+                lines.append("Rejected skills:")
+                for r in status["rejected"]:
+                    lines.append(f"- {r['name']} v{r['version']}: {r['error']}")
+            return "\n".join(lines)
 
         if command == "/debug":
             return self._debug_report()
         if command == "/status":
             return (
                 f"ATLAS status: brain online, memory connected, router ready.\n"
-                f"Loaded tools: {len(self._registry.list())} · Memories: {len(self.memory.search(''))}"
+                f"Loaded tools: {len(self._registry.list())} · Memories: {len(self.memory.search(''))} · "
+                f"Active goals: {len(self._goals.active_goals())}"
             )
+        if command == "/goals" or command.startswith("/goals "):
+            return self._goals_command(command)
+        if command == "/lessons":
+            return self._lessons_report()
+        if command == "/state":
+            return self._state_report()
         if command == "/tools":
             return f"Loaded tools: {', '.join(self._registry.list())}"
         if command == "/memory":

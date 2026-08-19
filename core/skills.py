@@ -1,53 +1,25 @@
-"""Drop-in skills for ATLAS.
+"""Legacy compatibility shim for loading ATLAS skills.
 
-A skill is a small Python module placed in the ``skills/`` folder that exposes
-a module-level ``SKILL`` dict::
-
-    SKILL = {
-        "name": "hello",
-        "description": "Friendly greeting skill.",
-        "trigger": "say hi atlas",     # phrase that activates the skill
-        "run": lambda router, prompt: "Hello from the hello skill!",
-    }
-
-The router loads every skill at startup, lists them via ``/skills``, and
-invokes a skill's ``run`` whenever its trigger phrase appears in a prompt.
-This is the lightweight, dependency-free way to add capabilities without
-editing the core router.
+Historically a skill was a single ``SKILL``-dict module in the ``skills/``
+folder. Skills are now declarative packages (``skill.json`` + ``skill.py``)
+managed by :class:`core.skill_manager.SkillManager`. This module keeps the old
+``load_skills()`` entry point working (it now returns lightweight dicts) so
+existing imports/behaviour are preserved while the real logic lives in one place.
 """
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
 from typing import Any
+
+from core.skill_manager import SkillManager
 
 
 def load_skills(folder: str = "skills") -> list[dict[str, Any]]:
-    """Discover and load all valid ``SKILL`` modules in ``folder``."""
-    skills: list[dict[str, Any]] = []
-    base = Path(folder)
-    if not base.exists():
-        return skills
+    """Discover and load all valid skill packages, returning legacy dicts.
 
-    for path in sorted(base.glob("*.py")):
-        if path.name.startswith("__"):
-            continue
-        try:
-            spec = importlib.util.spec_from_file_location(path.stem, path)
-            if spec is None or spec.loader is None:
-                continue
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            skill = getattr(module, "SKILL", None)
-            if (
-                isinstance(skill, dict)
-                and skill.get("name")
-                and skill.get("trigger")
-                and callable(skill.get("run"))
-            ):
-                skills.append(skill)
-        except Exception:
-            # A broken skill must never break ATLAS startup.
-            continue
-    return skills
+    Each dict exposes ``name``, ``description``, ``trigger``, and ``run`` so
+    old callers (and tests) keep working unchanged.
+    """
+    manager = SkillManager(skills_dir=folder)
+    manager.load_all()
+    return [skill.to_legacy_dict() for skill in manager.list() if skill.valid]

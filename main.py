@@ -7,10 +7,14 @@ from config.manager import ConfigManager
 from core.brain import Brain
 from core.events import EventBus
 from core.router import Router
+from memory.experience import ExperienceStore
 from memory.facts import FactStore
+from memory.goals import GoalManager
+from memory.state import AgentStateStore
 from plugins import PluginLoader
 from services.daily_briefing import DailyBriefingService
 from services.event_manager import EventManager
+from services.goal_service import AutonomousGoalService
 from services.health_monitor import HealthMonitor
 from services.plugin_manager import PluginManager
 from services.provider_monitor import ProviderMonitor
@@ -71,13 +75,41 @@ def main() -> None:
         temperature=config.get("temperature"),
         max_tokens=config.get("max_tokens")
     )
-    router = Router(brain=brain, memory=memory, registry=registry, config=config)
+    # Persistent agent state, goals, and learned experience share the memory DB
+    # so autonomy survives restarts. Built once here and shared with the router,
+    # briefing, and the background goal service.
+    state_store = AgentStateStore()
+    goals = GoalManager(memory=memory)
+    experiences = ExperienceStore(memory=memory)
+    router = Router(
+        brain=brain,
+        memory=memory,
+        registry=registry,
+        config=config,
+        state_store=state_store,
+        goals=goals,
+        experiences=experiences,
+    )
 
     plugin_manager = PluginManager()
     plugin_manager.discover()
 
-    briefing = DailyBriefingService(router=router, memory=memory)
+    briefing = DailyBriefingService(router=router, memory=memory, goal_manager=goals)
     briefing.start()
+
+    # Background autonomous goal loop - disabled by default; enabled with
+    # autonomy_enabled: true in config.json. It respects hard safety and never
+    # auto-approves destructive steps.
+    goal_service: AutonomousGoalService | None = None
+    if config.get("planner_enabled", True) and config.get("autonomy_enabled", False):
+        goal_service = AutonomousGoalService(
+            autonomy=router._autonomy,
+            interval_seconds=config.get("autonomy_interval_seconds", 600.0),
+            max_tasks=config.get("autonomy_max_tasks_per_cycle", 2),
+            enabled=True,
+        )
+        goal_service.start()
+        print("Autonomy: ✓ Background goal service enabled")
 
     voice_controller: VoiceController | None = None
     voice_enabled = config.get("voice_enabled", False)
@@ -121,6 +153,9 @@ def main() -> None:
             print("ATLAS: Goodbye.")
             if voice_controller is not None:
                 voice_controller.stop()
+            if goal_service is not None:
+                goal_service.stop()
+            briefing.stop()
             break
 
         if prompt.startswith("/") or prompt.lower().startswith(("remember ", "forget ", "recall ", "search ")):
