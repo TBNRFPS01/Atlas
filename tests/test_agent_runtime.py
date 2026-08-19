@@ -8,15 +8,13 @@ from core.agent_runtime import (
     ContextManager,
     FunctionSubagent,
     JsonlTrace,
-    MCPTool,
-    # imported below conditionally to keep this test file explicit
     ModelCandidate,
     RecoveryController,
     Sandbox,
     SubagentSpec,
     TraceRecorder,
 )
-from core.mcp import InMemoryMCPTransport, MCPClient
+from core.mcp import InMemoryMCPTransport, MCPClient, MCPTool
 
 
 def test_context_manager_compacts_by_priority() -> None:
