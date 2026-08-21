@@ -1,10 +1,10 @@
 # ATLAS
 
-**ATLAS is a local-first desktop AI agent for understanding, planning, operating, verifying, and recovering on your computer.**
+**ATLAS is a local-first desktop AI agent and personal agent runtime for understanding, planning, operating, verifying, recovering, and learning on your computer.**
 
-It is built around a tool-driven agent architecture with an LLM provider layer. ATLAS can control the computer, remember information, run multi-step missions, recover from failures, use skills and plugins, interact with the web, control media such as Spotify, and expose what it is doing through debugging and observability tools.
+It is built around a tool-driven agent architecture with an LLM provider layer. ATLAS can control the computer, remember information, run multi-step missions, persist mission checkpoints, recover from failures, use skills and plugins, interact with the web, control media such as Spotify, and expose what it is doing through debugging and observability tools.
 
-> **Current status:** V1 foundation is implemented and actively tested. **253 tests pass.** The UI is still being polished separately from the core agent system. The next major phase is focused on hardening the execution boundary and making autonomous operation substantially more robust.
+> **Current status:** V1 foundation is implemented and actively tested. **253 tests pass.** The UI is still being polished separately from the core agent system. ATLAS has now entered its evolution phase: strengthening persistent missions first, then expanding skills, perception, autonomous execution, trusted nodes, and multi-device interfaces.
 
 ## What ATLAS Can Do
 
@@ -14,6 +14,8 @@ It is built around a tool-driven agent architecture with an LLM provider layer. 
 - Recover from failed steps with an LLM-assisted fallback
 - Produce mission completion/failure summaries
 - Fall back to heuristic planning when an LLM plan is unavailable
+- Persist mission state, checkpoints, context, status, and outcomes
+- Resume unfinished missions after restart
 
 ### 🤖 Autonomy & Learning
 - Persistent agent state that survives restarts (checkpointed plans, counters, flags)
@@ -38,10 +40,13 @@ It is built around a tool-driven agent architecture with an LLM provider layer. 
 - Optional OCR support
 - Vision-model analysis when a compatible model is loaded
 
-### 🧠 Memory
+### 🧠 Memory & Persistent Context
 - Persistent memory with facts, preferences, tasks, events, projects and goals
 - Ranked retrieval using relevance, recency, importance and usage
 - Explicit remember/forget/recall/search commands
+- Durable mission state separate from general memory
+- Mission checkpoints, current steps, context, deadlines, results, and failure state
+- Resume candidates for unfinished work
 
 ### 🛡️ Safety & Permissions
 - Hard safety boundaries for protected system locations and critical operations
@@ -88,7 +93,7 @@ It is built around a tool-driven agent architecture with an LLM provider layer. 
 
 ## Architecture
 
-### Current V1 foundation
+### Current V1 + Evolution Foundation
 
 ```text
 User / Voice / UI
@@ -101,29 +106,36 @@ Brain / LLM              Direct Commands
   │                           │
   └──────────┬────────────────┘
              ↓
-        Tool Registry
+        Mission Runtime
+             ↓
+       Tool / Skill Registry
              ↓
    ┌─────────┼──────────┐
    │         │          │
  Tools     Skills    Plugins
-   │
-   ↓
+   │         │          │
+   └─────────┼──────────┘
+             ↓
 Permissions → Safety Boundaries
-   ↓
-Execution → Verification → Recovery
-   ↓
-Observability / Memory / Undo
+             ↓
+Execution → Observation → Verification
+             ↓              ↓
+        Recovery ←──────────┘
+             ↓
+      Mission Checkpoint
+             ↓
+     Persistent State / Memory
+             ↓
+       Observability / Audit
 ```
 
-The core is modular. Tools are discovered from `tools/`, skills are loaded from `skills/`, and the router coordinates direct commands with LLM-driven behavior.
+The core is modular. Tools are discovered from `tools/`, skills are loaded from `skills/`, and the runtime coordinates direct commands with LLM-driven behavior.
 
-### Target hardened architecture
-
-The next phase moves the hard trust boundary below the model and application logic:
+### Target Evolution Architecture
 
 ```text
                          ┌─────────────────────┐
-                         │   Frontier / Local  │
+                         │ Frontier / Local    │
                          │       Models        │
                          └──────────┬──────────┘
                                     ↓
@@ -134,24 +146,119 @@ The next phase moves the hard trust boundary below the model and application log
                          │ Permissions / Risk  │
                          └──────────┬──────────┘
                                     ↓
-                         Explicit User Approval
-                          (when required)
+                         Mission / Skill Router
                                     ↓
-                         ┌─────────────────────┐
-                         │  Sandboxed Executor │
-                         │ FS / Process / Net  │
-                         └──────────┬──────────┘
+                    ┌───────────────┼───────────────┐
+                    ↓               ↓               ↓
+                  Skills          Nodes        Interfaces
+                    ↓               ↓               ↓
+                 Tools          Devices        CLI/Web/iPad
+                    └───────────────┼───────────────┘
                                     ↓
-                              Real System
+                              Observation
                                     ↓
                          Independent Verification
                                     ↓
                          Recovery / Rollback
                                     ↓
-                              Audit Trail
+                       Persistent Mission State
+                                    ↓
+                         Learning / Audit Trail
 ```
 
 The goal is **smart planning with deterministic, enforceable boundaries**. Model quality should improve ATLAS's reasoning, not become the mechanism that enforces security.
+
+## Evolution Roadmap
+
+ATLAS has moved from feature accumulation into deliberate runtime evolution.
+
+### Phase 0 — Stabilize the Foundation
+- [x] Establish the existing agent, memory, mission, skills, safety, and observability baseline
+- [ ] Audit all mutating tools against one authorization path
+- [ ] Expand adversarial and integration coverage
+- [ ] Remove flaky behavior and establish a clean regression baseline
+
+### Phase 1 — Persistent Agent 🧠 **CURRENT**
+- [x] Add durable mission storage
+- [x] Store mission goal, priority, status, deadline, step, checkpoint, context, result, and failure state
+- [x] Identify unfinished missions for startup/resume handling
+- [ ] Wire mission checkpoints directly into the live agent execution loop
+- [ ] Automatically resume eligible missions after restart
+- [ ] Persist structured action/outcome history into mission context
+- [ ] Add stale-state detection and explicit mission recovery
+
+### Phase 2 — Extensible Agent 🧩
+- [ ] Package skills with manifests and versions
+- [ ] Declare dependencies, capabilities, permissions, triggers, and configuration
+- [ ] Add skill health checks
+- [ ] Sandbox untrusted/third-party skills
+- [ ] Make capability installation independent of ATLAS core routing
+
+### Phase 3 — Perceptive Agent 👁️
+- [ ] Unify screenshots, OCR, vision, DOM, window state, and tool output
+- [ ] Add before/after state comparison
+- [ ] Feed environmental changes into verification and recovery
+- [ ] Distinguish issued actions from verified outcomes
+
+### Phase 4 — Autonomous Missions 🔄
+- [ ] Long-running mission queues
+- [ ] Checkpoint every meaningful stage
+- [ ] Deadline and resource budgets
+- [ ] Retry budgets and failure classification
+- [ ] Blocked-state detection
+- [ ] Re-plan instead of repeating failed actions
+- [ ] Background mission execution with bounded authority
+
+### Phase 5 — Trusted Agent 🔐
+- [ ] Per-mission authority
+- [ ] Per-skill and per-node permissions
+- [ ] Credential isolation
+- [ ] Emergency stop / autonomy pause
+- [ ] Complete audit trail
+- [ ] Stronger rollback and transaction semantics
+
+### Phase 6 — Multi-Device Agent 🌐
+- [ ] Trusted node identity
+- [ ] Authentication and encrypted transport
+- [ ] Capability discovery
+- [ ] Node health/status
+- [ ] Task routing and revocation
+- [ ] Capability-aware node selection
+
+### Phase 7 — Unified Interfaces 📱
+- [ ] Stable runtime API
+- [ ] Local web control surface
+- [ ] iPad/mobile client
+- [ ] Voice and notification clients
+- [ ] Keep interfaces thin so all agent logic remains in the runtime
+
+### Phase 8 — Proactive Agent ⚡
+- [ ] Approved watches and event triggers
+- [ ] Goal-aware reminders
+- [ ] Failure/change notifications
+- [ ] Useful preparation of approved actions
+- [ ] Quiet-hours and notification policy
+
+### Phase 9 — Multi-Agent Execution 👥
+- [ ] Mission controller
+- [ ] Scoped specialist agents
+- [ ] Shared controlled state
+- [ ] Independent verification agent
+- [ ] Global stop and authority boundaries
+
+### Phase 10 — Self-Maintaining Runtime 🛠️
+- [ ] Dependency health checks
+- [ ] Skill/provider health checks
+- [ ] Database/configuration diagnostics
+- [ ] Safe automatic recovery
+- [ ] Update proposals requiring explicit approval for high-impact changes
+
+### Phase 11 — Agent Platform 🚀
+- [ ] Stable runtime API
+- [ ] Publicly documented skill/node interfaces
+- [ ] Capability registry
+- [ ] Reusable mission system
+- [ ] Consistent security model across all extensions
 
 ## Safety Model
 
@@ -161,7 +268,7 @@ The safety layer protects critical paths and forbidden operations. Supported des
 
 For autonomous missions, the planner executes and verifies steps rather than blindly assuming that a successful tool call means the overall task succeeded.
 
-Autonomy is gated by default: the background goal service only runs when `autonomy_enabled` is true, advances a bounded number of steps per cycle, and runs with *agent* consent so destructive/elevated steps are parked for explicit user confirmation instead of auto-approved. Hard safety boundaries always win, and every mission's plan is checkpointed so a restart resumes the same goal rather than restarting it.
+Autonomy is gated by default: the background goal service only runs when `autonomy_enabled` is true, advances a bounded number of steps per cycle, and runs with *agent* consent so destructive/elevated steps are parked for explicit user confirmation instead of auto-approved. Hard safety boundaries always win, and mission state is now persisted separately so the evolution toward resumable work can be built on top of the existing runtime.
 
 ### Security hardening goals
 
@@ -191,12 +298,16 @@ The target model strategy is:
 
 Model routing should be based on task complexity and capability requirements rather than making every operation depend on the most expensive model.
 
-## Autonomy & Reliability Roadmap
+## Autonomy & Reliability
 
 The long-term execution loop is:
 
 ```text
 Goal
+ ↓
+Understand intent + constraints
+ ↓
+Load capabilities
  ↓
 Plan
  ↓
@@ -208,26 +319,18 @@ Observe
  ↓
 Verify against the original goal
  ↓
-Success ───────────────→ Finish
+Success ───────────────→ Persist outcome → Finish
  ↓
 Failure
  ↓
-Recover / Roll back / Re-plan
+Classify → Recover / Roll back / Re-plan
+ ↓
+Checkpoint
  ↓
 Verify again
 ```
 
-Additional reliability targets include:
-
-- Long-running task support
-- Persistent task queues
-- Safe parallel tool execution
-- Independent verification of important results
-- Checkpointing and resumable missions
-- Rollback and undo for supported mutations
-- Resource and time budgets
-- Failure classification and targeted recovery strategies
-- Better real-environment integration testing
+The mission store provides the foundation for resumable work. The next implementation step is connecting checkpoints to the live executor so an interrupted mission can resume from its last known state rather than starting over.
 
 ## Observability
 
@@ -240,6 +343,7 @@ ATLAS includes `/debug` and related diagnostics for inspecting:
 - Tool-call timings
 - Recent errors
 - Execution traces
+- Mission state and progress as the runtime integration expands
 
 The hardened architecture will extend observability into a complete audit trail covering authorization decisions, approvals, sandbox execution, verification, recovery, and task lifecycle events.
 
@@ -263,7 +367,7 @@ The project currently has **253 passing tests** covering areas including:
 
 CI is configured under `.github/workflows/ci.yml`.
 
-The next testing phase will add adversarial and integration coverage, especially around authorization boundaries, prompt injection, sandbox escapes, path traversal, confirmation spoofing, malformed tool calls, and recovery behavior.
+The next testing phase will add adversarial and integration coverage, especially around authorization boundaries, prompt injection, sandbox escapes, path traversal, confirmation spoofing, malformed tool calls, persistent mission recovery, and cross-component behavior.
 
 ## Running ATLAS
 
@@ -281,7 +385,7 @@ ATLAS/
 ├── planner/           # Mission planning, execution, verification and recovery
 ├── tools/             # Discoverable tool integrations
 ├── skills/            # Drop-in ATLAS skills
-├── memory/            # Persistent memory and retrieval
+├── memory/            # Persistent memory, retrieval and mission state
 ├── automation/        # Computer/clipboard automation
 ├── vision/            # Screen understanding and OCR/vision helpers
 ├── voice/             # Voice configuration, listening and hardware support
@@ -290,50 +394,17 @@ ATLAS/
 └── .github/workflows/ # CI
 ```
 
-## Roadmap
-
-### Foundation
-
-- [x] Persistent agent state, goal management, experience-based learning, self-evaluation, and adaptive strategy selection
-- [x] Harden autonomous confirmation semantics (background runs never auto-approve destructive steps)
-- [x] Tool/skill/plugin architecture
-- [x] Mission verification and recovery
-- [x] Persistent memory and observability
-
-### Security & execution hardening
-
-- [ ] Audit every mutating tool for a universal authorization gate
-- [ ] Replace spoofable text confirmation with a separate approval channel
-- [ ] Add adversarial prompt-injection and authorization-bypass tests
-- [ ] Treat external content as untrusted data throughout the tool pipeline
-- [ ] Add sandboxed execution with filesystem/process/network restrictions
-- [ ] Add process and resource limits
-- [ ] Isolate secrets and credentials
-- [ ] Strengthen rollback/transaction support
-- [ ] Expand security audit logging
-
-### Intelligence & autonomy
-
-- [ ] Add frontier-model routing with local-model fallback
-- [ ] Improve model-based planning while keeping policy deterministic
-- [ ] Strengthen independent result verification
-- [ ] Add long-running task queues
-- [ ] Add safe parallel execution
-- [ ] Improve failure classification and recovery
-- [ ] Expand real-world computer-use validation
-
-### Product
-
-- [ ] Finish and polish the desktop UI
-- [ ] Run full real-hardware voice E2E testing
-- [ ] Validate vision with a loaded vision model and OCR setup
-- [ ] Continue expanding edge-case/integration tests
-- [ ] Package ATLAS as a polished desktop application
-
 ## Philosophy
 
 ATLAS is built around a simple idea:
 
 > **Give the agent useful capabilities, make its actions observable, and put hard safety boundaries around the things it must never do.**
 
-The goal is not just to make an LLM answer questions. The goal is to make it capable of **doing useful work on the computer while remaining understandable, testable, recoverable, and constrained even when the model is wrong.**
+The evolution goal is to turn that foundation into a **personal agent runtime**: give ATLAS a meaningful goal, let it choose the right capabilities, execute within explicit authority, observe and verify its work, recover when necessary, persist what happened, and ask for help only when it genuinely needs the user.
+
+The objective is **capability with control**, not maximum autonomy for its own sake.
+
+## Evolution Documents
+
+- `ATLAS_EVOLUTION.md` — long-term evolution roadmap and definition of mature ATLAS
+- `docs/EVOLUTION_PRINCIPLES.md` — engineering principles for evolving the runtime safely
