@@ -29,6 +29,32 @@ class Router:
     ATLAS's existing command, task, skill, tool, and LLM pipelines.
     """
 
+    # Phrases that indicate a request should enter ATLAS's task execution path.
+    # Keep this deterministic so both route() and stream() make the same choice.
+    _TASK_TRIGGER_PHRASES = (
+        "open ",
+        "launch ",
+        "start ",
+        "close ",
+        "stop ",
+        "run ",
+        "execute ",
+        "create ",
+        "make ",
+        "delete ",
+        "move ",
+        "copy ",
+        "rename ",
+        "download ",
+        "upload ",
+        "search for ",
+        "take a screenshot",
+        "take screenshot",
+        "click ",
+        "type ",
+        "press ",
+    )
+
     def __init__(
         self,
         brain: Brain | None = None,
