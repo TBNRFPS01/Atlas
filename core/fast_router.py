@@ -20,7 +20,10 @@ class FastIntentRouter:
 
     def set_skills(self, skills: Iterable[object]) -> None:
         """Replace the deterministic skill index with active skill objects."""
-        self._skills = [skill for skill in skills if getattr(skill, "enabled", True) and getattr(skill, "valid", True)]
+        self._skills = [
+            skill for skill in skills
+            if getattr(skill, "enabled", True) and getattr(skill, "valid", True)
+        ]
 
     def route(self, prompt: str) -> Intent | None:
         """Return a deterministic intent, preferring built-ins over skills."""
@@ -55,8 +58,8 @@ class FastIntentRouter:
     def _matches_skill(skill: object, text: str) -> bool:
         """Match the same manifest trigger semantics used by Skill.matches()."""
         for raw_trigger in getattr(skill, "triggers", ()):
-            trigger = str(raw_trigger).strip().lower()
-            if not trigger:
+            trigger = str(raw_trigger).lower()
+            if not trigger.strip():
                 continue
             if trigger.startswith("^"):
                 if text.startswith(trigger[1:]):
