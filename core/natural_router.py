@@ -44,7 +44,6 @@ class NaturalCapabilityRouter:
             return f"{tool_name} tool error: {exc}"
 
     def _resolve_application_name(self, router: Any, candidate: str) -> str:
-        """Use the LLM to normalize ambiguous app references on first use."""
         candidate = candidate.strip()
         if not candidate:
             return candidate
@@ -55,8 +54,6 @@ class NaturalCapabilityRouter:
         )
         try:
             answer = router.brain.ask(prompt).strip()
-            # Be tolerant of a model returning APP_NAME: Foo despite the
-            # strict instruction.
             answer = re.sub(r"^(?:app(?:lication)?[_ ]?name)\s*:\s*", "", answer, flags=re.I)
             answer = answer.splitlines()[0].strip().strip("`\"'")
             if 0 < len(answer) <= 80:
@@ -70,8 +67,6 @@ class NaturalCapabilityRouter:
         if not result:
             return None
         for line in result.splitlines():
-            # system_tool prefixes results with text such as "Found in PATH:"
-            # while Windows paths themselves contain a drive colon.
             match = re.search(r"(?:Found[^:]*:\s*)([A-Za-z]:[\\/].+)$", line)
             if match:
                 path = match.group(1).strip().strip('"')
@@ -99,8 +94,6 @@ class NaturalCapabilityRouter:
             if result is not None:
                 return result
 
-        # First use: ask the model to resolve the user's natural-language
-        # reference, then let deterministic OS discovery find the executable.
         app_name = self._resolve_application_name(router, requested)
         discovered = self._execute(router, "system", action="find_application", application_name=app_name)
         path = self._first_verified_path(discovered)
@@ -117,7 +110,14 @@ class NaturalCapabilityRouter:
             return f"Found '{app_name}' at {path}"
         return discovered
 
-    def _match(self, prompt: str) -> str | None:
+    @staticmethod
+    def _match(prompt: str) -> str | None:
+        """Return a deterministic capability route without requiring an instance.
+
+        Keeping this as a static method preserves the public helper API used by
+        existing callers/tests. Execution and application learning still happen
+        through the installed instance methods.
+        """
         text = prompt.lower().strip()
 
         web_prefixes = (
@@ -153,8 +153,6 @@ class NaturalCapabilityRouter:
         )):
             return "context:window"
 
-        # Generic application discovery. Do not hard-code Spotify/Chrome/etc.
-        # The target is resolved by the LLM on first use and cached afterwards.
         app_match = re.match(
             r"^(find|locate|where is|open|launch|start|run)\s+(?:the\s+)?(.+?)(?:\s+(?:app|application|program))?[.!?]*$",
             text,
@@ -174,8 +172,7 @@ class NaturalCapabilityRouter:
             return self._execute(router, "web", action="search", query=parts[2])
 
         if parts[0] == "system":
-            action = parts[1]
-            if action == "info":
+            if parts[1] == "info":
                 return self._execute(router, "system", action="info")
 
         if parts[0] == "context":
