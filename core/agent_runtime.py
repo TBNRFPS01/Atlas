@@ -1,7 +1,7 @@
 """Composable runtime for advanced ATLAS agent capabilities.
 
 This module provides a small, dependency-light orchestration layer that can be
-used by the existing Router/Planner without replacing them.  It adds durable
+used by the existing Router/Planner without replacing them. It adds durable
 execution traces, context budgeting and compaction, human-in-the-loop
 approvals, subagent delegation, bounded retries/recovery, pluggable model
 routing, safe sandbox execution hooks, and resumable task state.
@@ -81,28 +81,28 @@ class ContextManager:
         self.items.append(ContextItem(role, content, priority))
         self.compact()
 
+    @staticmethod
+    def _render_item(item: ContextItem) -> str:
+        return f"[{item.role}] {item.content}"
+
     def compact(self) -> None:
-        # Account for the rendered role prefix and separators, not just raw
-        # content. This makes max_chars an actual output-size contract.
         ordered = sorted(self.items, key=lambda i: (i.priority, i.timestamp), reverse=True)
         kept: list[ContextItem] = []
         used = 0
         for item in ordered:
-            rendered_len = len(f"[{item.role}] {item.content}")
+            rendered_len = len(self._render_item(item))
             separator = 2 if kept else 0
-            if used + separator + rendered_len > self.max_chars:
-                continue
-            kept.append(item)
-            used += separator + rendered_len
+            if used + separator + rendered_len <= self.max_chars:
+                kept.append(item)
+                used += separator + rendered_len
         self.items = sorted(kept, key=lambda i: i.timestamp)
 
     def render(self) -> str:
-        rendered = "\n\n".join(f"[{i.role}] {i.content}" for i in self.items)
-        if len(rendered) <= self.max_chars:
-            return rendered
-        # A single oversized high-priority item is still bounded. Preserve the
-        # beginning because it contains the role and most useful context.
-        return rendered[: self.max_chars]
+        # Re-compact at render time as a final invariant. This also protects
+        # callers that mutate ContextItem instances after insertion.
+        self.compact()
+        rendered = "\n\n".join(self._render_item(i) for i in self.items)
+        return rendered[:self.max_chars]
 
 
 @dataclass(slots=True)
