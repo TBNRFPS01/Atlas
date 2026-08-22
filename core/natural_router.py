@@ -5,25 +5,29 @@ from collections.abc import Iterator
 from types import MethodType
 from typing import Any
 
+from core.application_registry import ApplicationRegistry
+
 
 class NaturalCapabilityRouter:
-    """Small deterministic front-door for common human phrasing.
+    """Human-language front door with persistent application discovery.
 
-    This layer intentionally sits in front of the existing Router rather than
-    replacing it. It handles requests whose intent is unambiguous, then lets
-    the existing router handle skills, memory, planning, permissions, and the
-    LLM fallback.
+    Common actions are deterministic. Application names are resolved with the
+    LLM only on a cache miss, then the local system tool performs and verifies
+    discovery. Verified executable paths are persisted and reused on later
+    requests without another LLM call.
     """
 
     def __init__(self, router: Any) -> None:
         self.router = router
         self._original_route = router.route
         self._original_stream = router.stream
+        self.apps = ApplicationRegistry()
 
     def install(self) -> Any:
-        self.router.route = MethodType(self._route, self.router)
-        self.router.stream = MethodType(self._stream, self.router)
-        return self.router
+        router = self.router
+        router.route = MethodType(self._route, router)
+        router.stream = MethodType(self._stream, router)
+        return router
 
     @staticmethod
     def _tool(router: Any, name: str) -> Any | None:
@@ -36,24 +40,89 @@ class NaturalCapabilityRouter:
             return None
         try:
             return tool.execute(**kwargs)
-        except Exception as exc:  # defensive boundary for deterministic routing
+        except Exception as exc:
             return f"{tool_name} tool error: {exc}"
 
-    @classmethod
-    def _match(cls, prompt: str) -> str | None:
+    def _resolve_application_name(self, router: Any, candidate: str) -> str:
+        """Use the LLM to normalize ambiguous app references on first use."""
+        candidate = candidate.strip()
+        if not candidate:
+            return candidate
+        prompt = (
+            "Extract the desktop application name from this request. "
+            "Return ONLY the application name, with no explanation. "
+            f"Request: {candidate}"
+        )
+        try:
+            answer = router.brain.ask(prompt).strip()
+            # Be tolerant of a model returning APP_NAME: Foo despite the
+            # strict instruction.
+            answer = re.sub(r"^(?:app(?:lication)?[_ ]?name)\s*:\s*", "", answer, flags=re.I)
+            answer = answer.splitlines()[0].strip().strip("`\"'")
+            if 0 < len(answer) <= 80:
+                return answer
+        except Exception:
+            pass
+        return candidate
+
+    @staticmethod
+    def _first_verified_path(result: str | None) -> str | None:
+        if not result:
+            return None
+        for line in result.splitlines():
+            # system_tool prefixes results with text such as "Found in PATH:"
+            # while Windows paths themselves contain a drive colon.
+            match = re.search(r"(?:Found[^:]*:\s*)([A-Za-z]:[\\/].+)$", line)
+            if match:
+                path = match.group(1).strip().strip('"')
+                if path:
+                    return path
+            if re.fullmatch(r"[A-Za-z]:[\\/].+", line.strip()):
+                return line.strip()
+        return None
+
+    def _application_action(self, router: Any, action: str, candidate: str) -> str | None:
+        requested = candidate.strip()
+        if not requested:
+            return "Tell me which application you mean."
+
+        key = self.apps.normalize(requested)
+        cached = self.apps.get(key)
+        if cached:
+            result = self._execute(
+                router,
+                "system",
+                action="launch_application_path" if action == "launch" else "find_application",
+                application_name=requested,
+                application_path=cached,
+            )
+            if result is not None:
+                return result
+
+        # First use: ask the model to resolve the user's natural-language
+        # reference, then let deterministic OS discovery find the executable.
+        app_name = self._resolve_application_name(router, requested)
+        discovered = self._execute(router, "system", action="find_application", application_name=app_name)
+        path = self._first_verified_path(discovered)
+        if path:
+            self.apps.remember(app_name, path, source="llm+system-discovery")
+            if action == "launch":
+                return self._execute(
+                    router,
+                    "system",
+                    action="launch_application_path",
+                    application_name=app_name,
+                    application_path=path,
+                )
+            return f"Found '{app_name}' at {path}"
+        return discovered
+
+    def _match(self, prompt: str) -> str | None:
         text = prompt.lower().strip()
 
-        # Web search must be checked before the legacy `search <term>` memory
-        # shortcut. This prevents "search the web for X" from becoming a
-        # memory search for "the web for X".
         web_prefixes = (
-            "search the web for ",
-            "search the web ",
-            "search web for ",
-            "search online for ",
-            "look up ",
-            "google ",
-            "find information about ",
+            "search the web for ", "search the web ", "search web for ",
+            "search online for ", "look up ", "google ", "find information about ",
         )
         for prefix in web_prefixes:
             if text.startswith(prefix):
@@ -84,17 +153,16 @@ class NaturalCapabilityRouter:
         )):
             return "context:window"
 
-        # App discovery/launching. Keep this separate from Spotify playback
-        # so "find Spotify" means find the desktop application.
-        app_match = re.search(
-            r"^(?:find|locate|where is|open|launch|start|run)\s+(?:the\s+)?(.+?)(?:\s+app|\s+application|\s+program)?[.!?]*$",
+        # Generic application discovery. Do not hard-code Spotify/Chrome/etc.
+        # The target is resolved by the LLM on first use and cached afterwards.
+        app_match = re.match(
+            r"^(find|locate|where is|open|launch|start|run)\s+(?:the\s+)?(.+?)(?:\s+(?:app|application|program))?[.!?]*$",
             text,
         )
         if app_match:
-            name = app_match.group(1).strip()
-            if name in {"spotify", "chrome", "google chrome", "discord", "steam", "notepad", "vscode", "vs code"}:
-                action = "find_application" if text.startswith(("find ", "locate ", "where is ")) else "launch_application"
-                return f"system:{action}:{name}"
+            verb, name = app_match.groups()
+            action = "find" if verb in {"find", "locate", "where is"} else "launch"
+            return f"application:{action}:{name.strip()}"
 
         return None
 
@@ -109,10 +177,12 @@ class NaturalCapabilityRouter:
             action = parts[1]
             if action == "info":
                 return self._execute(router, "system", action="info")
-            return self._execute(router, "system", action=action, application_name=parts[2])
 
         if parts[0] == "context":
             return self._execute(router, "context", action=parts[1])
+
+        if parts[0] == "application":
+            return self._application_action(router, parts[1], parts[2])
 
         return None
 
@@ -135,5 +205,4 @@ class NaturalCapabilityRouter:
 
 
 def install(router: Any) -> Any:
-    """Install the natural-language capability front-door on a Router."""
     return NaturalCapabilityRouter(router).install()
