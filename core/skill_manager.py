@@ -1,37 +1,4 @@
-"""Declarative, discoverable, permission-aware skill packages for ATLAS.
-
-A *skill* is a folder under ``skills/`` containing:
-
-    skill.json   -- declarative manifest (metadata + capabilities)
-    skill.py     -- optional entry module exposing a ``run(router, prompt)`` callable
-
-``skill.json`` supports:
-
-    {
-      "name": "browser",
-      "version": "1.0.0",
-      "description": "...",
-      "dependencies": ["browser"],            # tool names or importable modules
-      "permissions": ["browser:navigate"],    # capabilities the skill REQUESTS
-      "triggers": ["open browser", "^spotify "],
-      "tools": ["browser"],
-      "entry": "run"                          # optional, default "run"
-    }
-
-Security model
--------------
-* A skill only *declares* the capabilities it wants. It never receives them
-  automatically. Actual enforcement still flows through the existing
-  :class:`~core.permissions.PermissionManager` and :class:`~core.safety.HardSafety`
-  -- this module is an integration layer, not a second permission system.
-* Built-in skills (a known, shipped set) are *trusted*. Any other skill is
-  *untrusted* and is blocked from dangerous capability classes (filesystem
-  writes, shell, unrestricted network, browser control, secrets, destructive
-  operations). Deny rules continue to override allows.
-* Dependencies are validated before loading. Missing/incompatible deps produce
-  a clear error and the skill is marked invalid -- nothing is auto-installed.
-"""
-
+"""Declarative, discoverable, permission-aware skill packages for ATLAS."""
 from __future__ import annotations
 
 import importlib.util
@@ -43,12 +10,8 @@ from core.permissions import Decision, PermissionManager
 from core.safety import HardSafety
 
 
-# Skills shipped with ATLAS. Trust is *not* self-declared: a skill is trusted
-# only if its name is in this set, so a third-party skill cannot escalate by
-# writing ``"trusted": true`` into its own manifest.
 BUILTIN_SKILLS = frozenset({"hello", "browser", "spotify", "minecraft", "coding"})
 
-# Capabilities an UNTRUSTED skill may never request. Trusted skills are exempt.
 _FORBIDDEN_CAP_PREFIXES = (
     "fs:", "file:write", "file:delete", "file:append", "file:format",
     "shell:", "exec:", "subprocess:", "os.system",
@@ -61,7 +24,6 @@ _FORBIDDEN_CAP_PREFIXES = (
 _FORBIDDEN_CAP_EXACT = frozenset(
     {"file:write", "file:delete", "shell", "exec", "destructive", "secrets", "credentials"}
 )
-
 REQUIRED_MANIFEST_FIELDS = ("name", "version", "description", "triggers")
 
 
@@ -90,11 +52,7 @@ def _parse_version(version: str) -> tuple[int, ...]:
 
 
 class Skill:
-    """A single loaded skill package.
-
-    Exposes both attribute access (``skill.name``) and dict-style access
-    (``skill["name"]``) so legacy router/test code keeps working.
-    """
+    """A loaded skill package."""
 
     def __init__(
         self,
@@ -111,6 +69,7 @@ class Skill:
         path: str | None = None,
         valid: bool = True,
         error: str = "",
+        requires_llm: bool = False,
     ) -> None:
         self.name = name
         self.version = version
@@ -125,14 +84,13 @@ class Skill:
         self.valid = valid
         self.error = error
         self.enabled = valid
-        # Legacy single-trigger field used by old router contract.
+        self.requires_llm = requires_llm
         self.trigger = self.triggers[0] if self.triggers else ""
 
     def __getitem__(self, key: str) -> Any:
         return getattr(self, key)
 
     def matches(self, lowered_prompt: str) -> bool:
-        """Return True if any trigger matches (``^`` anchors at start-of-prompt)."""
         for trigger in self.triggers:
             if not trigger:
                 continue
@@ -179,40 +137,30 @@ class SkillManager:
         self._skills: dict[str, Skill] = {}
         self._rejected: list[Skill] = []
 
-    # -- discovery -------------------------------------------------------
     def discover(self) -> list[Path]:
-        """Return paths of skill directories that contain a ``skill.json``."""
         if not self._skills_dir.exists():
             return []
-        found: list[Path] = []
-        for child in sorted(self._skills_dir.iterdir()):
-            if child.is_dir() and (child / "skill.json").exists():
-                found.append(child)
-        return found
+        return [
+            child for child in sorted(self._skills_dir.iterdir())
+            if child.is_dir() and (child / "skill.json").exists()
+        ]
 
-    # -- loading ---------------------------------------------------------
     def load_all(self) -> list[Skill]:
-        """Discover and load every skill package, resolving duplicates."""
         self._skills.clear()
         self._rejected.clear()
-
         candidates: list[tuple[Path, dict[str, Any]]] = []
         for skill_dir in self.discover():
             try:
                 manifest = self._read_manifest(skill_dir / "skill.json")
             except SkillLoadError as exc:
-                rejected = Skill(
-                    name=skill_dir.name, version="0.0.0",
-                    description="", triggers=[], valid=False, error=str(exc),
-                    path=str(skill_dir),
-                )
-                self._rejected.append(rejected)
+                self._rejected.append(Skill(
+                    name=skill_dir.name, version="0.0.0", description="", triggers=[],
+                    valid=False, error=str(exc), path=str(skill_dir),
+                ))
                 continue
             candidates.append((skill_dir, manifest))
-
         for skill_dir, manifest in candidates:
-            skill = self._build_skill(skill_dir, manifest)
-            self._register(skill)
+            self._register(self._build_skill(skill_dir, manifest))
         return self.list()
 
     def _register(self, skill: Skill) -> None:
@@ -220,7 +168,6 @@ class SkillManager:
         if existing is None:
             self._skills[skill.name] = skill
             return
-        # Duplicate name: keep the higher version; reject the lower one.
         if _parse_version(skill.version) > _parse_version(existing.version):
             self._skills[skill.name] = skill
             existing.enabled = False
@@ -242,10 +189,9 @@ class SkillManager:
     def _read_manifest(self, path: Path) -> dict[str, Any]:
         try:
             raw = path.read_text(encoding="utf-8")
+            manifest = json.loads(raw)
         except OSError as exc:
             raise SkillLoadError(f"cannot read manifest: {exc}") from exc
-        try:
-            manifest = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise SkillLoadError(f"malformed skill.json: {exc}") from exc
         if not isinstance(manifest, dict):
@@ -255,62 +201,54 @@ class SkillManager:
             raise SkillLoadError(f"missing required manifest field(s): {', '.join(missing)}")
         return manifest
 
+    @staticmethod
+    def _manifest_requires_llm(manifest: dict[str, Any]) -> bool:
+        value = manifest.get("requires_llm", False)
+        if isinstance(value, bool):
+            return value
+        # Invalid/malformed values fail closed to the deterministic path being
+        # unavailable. Treating non-booleans as True prevents accidental bypass.
+        return True
+
     def _build_skill(self, skill_dir: Path, manifest: dict[str, Any]) -> Skill:
         name = str(manifest["name"])
         trusted = name in self._trusted
-
-        # 1. Dependency validation (before anything else).
-        missing_deps = self.validate_dependencies(name, manifest.get("dependencies", []))
-        if missing_deps:
-            return Skill(
-                name=name, version=str(manifest.get("version", "0.0.0")),
-                description=str(manifest.get("description", "")),
-                triggers=list(manifest.get("triggers", [])),
-                dependencies=manifest.get("dependencies", []),
-                permissions=manifest.get("permissions", []),
-                tools=manifest.get("tools", []),
-                trusted=trusted, path=str(skill_dir), valid=False,
-                error=f"missing dependencies: {', '.join(missing_deps)}",
-            )
-
-        # 2. Permission validation for untrusted skills.
-        forbidden = [c for c in manifest.get("permissions", []) if _is_forbidden_capability(c)]
-        if forbidden and not trusted:
-            return Skill(
-                name=name, version=str(manifest.get("version", "0.0.0")),
-                description=str(manifest.get("description", "")),
-                triggers=list(manifest.get("triggers", [])),
-                dependencies=manifest.get("dependencies", []),
-                permissions=manifest.get("permissions", []),
-                tools=manifest.get("tools", []),
-                trusted=trusted, path=str(skill_dir), valid=False,
-                error=f"untrusted skill requests forbidden capabilities: {', '.join(forbidden)}",
-            )
-
-        # 3. Load the entry module.
-        entry = str(manifest.get("entry", "run"))
-        run_func = self._load_entry(skill_dir, entry)
-        if run_func is None:
-            return Skill(
-                name=name, version=str(manifest.get("version", "0.0.0")),
-                description=str(manifest.get("description", "")),
-                triggers=list(manifest.get("triggers", [])),
-                dependencies=manifest.get("dependencies", []),
-                permissions=manifest.get("permissions", []),
-                tools=manifest.get("tools", []),
-                trusted=trusted, path=str(skill_dir), valid=False,
-                error=f"skill entry '{entry}' not found or not callable",
-            )
-
-        return Skill(
-            name=name, version=str(manifest.get("version", "0.0.0")),
+        requires_llm = self._manifest_requires_llm(manifest)
+        common = dict(
+            name=name,
+            version=str(manifest.get("version", "0.0.0")),
             description=str(manifest.get("description", "")),
             triggers=list(manifest.get("triggers", [])),
             dependencies=manifest.get("dependencies", []),
             permissions=manifest.get("permissions", []),
             tools=manifest.get("tools", []),
-            run=run_func, trusted=trusted, path=str(skill_dir), valid=True,
+            trusted=trusted,
+            path=str(skill_dir),
+            requires_llm=requires_llm,
         )
+
+        missing_deps = self.validate_dependencies(name, manifest.get("dependencies", []))
+        if missing_deps:
+            return Skill(**common, valid=False, error=f"missing dependencies: {', '.join(missing_deps)}")
+
+        forbidden = [c for c in manifest.get("permissions", []) if _is_forbidden_capability(c)]
+        if forbidden and not trusted:
+            return Skill(
+                **common,
+                valid=False,
+                error=f"untrusted skill requests forbidden capabilities: {', '.join(forbidden)}",
+            )
+
+        entry = str(manifest.get("entry", "run"))
+        run_func = self._load_entry(skill_dir, entry)
+        if run_func is None:
+            return Skill(
+                **common,
+                valid=False,
+                error=f"skill entry '{entry}' not found or not callable",
+            )
+
+        return Skill(**common, run=run_func, valid=True)
 
     def _load_entry(self, skill_dir: Path, entry: str) -> Callable[[Any, str], str] | None:
         module_path = skill_dir / "skill.py"
@@ -327,56 +265,40 @@ class SkillManager:
         except Exception:
             return None
 
-    # -- dependency validation ------------------------------------------
     def validate_dependencies(self, name: str, dependencies: list[str]) -> list[str]:
-        """Return a list of unmet dependency identifiers (empty if all met)."""
         missing: list[str] = []
         for dep in dependencies or []:
-            if self._dependency_met(dep):
-                continue
-            missing.append(dep)
+            if not self._dependency_met(dep):
+                missing.append(dep)
         return missing
 
     def _dependency_met(self, dep: str) -> bool:
-        # 1. If a registry is available, a tool name counts as a dependency.
         if self._registry is not None:
             try:
                 if self._registry.get(dep) is not None:
                     return True
             except Exception:
                 pass
-        # 2. Otherwise/also, treat as an importable Python module.
         try:
             return importlib.util.find_spec(dep) is not None
         except Exception:
             return False
 
-    # -- runtime permission integration ---------------------------------
     def request_permission(self, name: str, capability: str) -> str:
-        """Request a capability for a skill.
-
-        Returns one of :class:`Decision` values. A skill *requests*; it never
-        auto-receives. Untrusted skills are denied forbidden capabilities, and
-        the hard-safety boundaries plus explicit deny rules still apply.
-        """
         skill = self._skills.get(name)
         if skill is None:
             return Decision.DENY
-
         if not skill.trusted and _is_forbidden_capability(capability):
             return Decision.DENY
-
         if self._safety is not None:
             tool, _, action = capability.partition(":")
             if not self._safety.is_safe(tool or "skill", action or capability):
                 return Decision.DENY
-
         if self._permissions is not None:
             return self._permissions.decide("skill", capability, permission_level="basic")
         return Decision.ALLOW
 
     def can_run(self, skill: Skill) -> tuple[bool, str]:
-        """Whether a skill may currently be executed by the router."""
         if not skill.valid:
             return False, skill.error or "skill is invalid"
         if not skill.enabled:
@@ -387,12 +309,9 @@ class SkillManager:
                 return False, f"untrusted skill requests forbidden capabilities: {forbidden}"
         return True, ""
 
-    # -- lifecycle -------------------------------------------------------
     def unload(self, name: str) -> bool:
-        """Unload a skill by name. Returns True if it was loaded."""
         skill = self._skills.pop(name, None)
         if skill is None:
-            # Also clear from rejected list if present.
             self._rejected = [s for s in self._rejected if s.name != name]
             return False
         skill.enabled = False
@@ -402,15 +321,12 @@ class SkillManager:
         return self._skills.get(name)
 
     def list(self) -> list[Skill]:
-        """Return all currently active (registered) skills."""
         return list(self._skills.values())
 
     def all_skills(self) -> list[Skill]:
-        """Return active skills plus rejected/duplicate ones (for diagnostics)."""
         return list(self._skills.values()) + self._rejected
 
     def status(self) -> dict[str, Any]:
-        """Structured snapshot for debugging/observability."""
         active = []
         for skill in self._skills.values():
             active.append({
@@ -421,6 +337,7 @@ class SkillManager:
                 "enabled": skill.enabled,
                 "valid": skill.valid,
                 "error": skill.error,
+                "requires_llm": skill.requires_llm,
                 "permissions": skill.permissions,
                 "dependencies": skill.dependencies,
                 "triggers": skill.triggers,
