@@ -1,19 +1,10 @@
 """Composable runtime for advanced ATLAS agent capabilities.
 
 This module provides a small, dependency-light orchestration layer that can be
-used by the existing Router/Planner without replacing them.  It adds:
-
-* durable execution traces
-* context budgeting and compaction
-* human-in-the-loop approvals
-* subagent delegation
-* bounded retries/recovery
-* pluggable model routing
-* safe sandbox execution hooks
-* resumable task state
-
-The runtime deliberately uses protocols and standard-library types so the
-existing ATLAS tools remain compatible.
+used by the existing Router/Planner without replacing them.  It adds durable
+execution traces, context budgeting and compaction, human-in-the-loop
+approvals, subagent delegation, bounded retries/recovery, pluggable model
+routing, safe sandbox execution hooks, and resumable task state.
 """
 from __future__ import annotations
 
@@ -43,8 +34,6 @@ class TraceSink(Protocol):
 
 
 class JsonlTrace:
-    """Append-only JSONL trace sink suitable for local debugging."""
-
     def __init__(self, path: str | os.PathLike[str] | None = None) -> None:
         self.path = Path(path or (Path.home() / ".atlas" / "traces.jsonl"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,10 +71,10 @@ class ContextItem:
 
 
 class ContextManager:
-    """Keep useful context inside a configurable character/token budget."""
+    """Keep useful context inside a configurable character budget."""
 
     def __init__(self, max_chars: int = 48_000) -> None:
-        self.max_chars = max(1_000, max_chars)
+        self.max_chars = max(1, max_chars)
         self.items: list[ContextItem] = []
 
     def add(self, role: str, content: str, priority: int = 0) -> None:
@@ -93,22 +82,27 @@ class ContextManager:
         self.compact()
 
     def compact(self) -> None:
-        total = sum(len(i.content) for i in self.items)
-        if total <= self.max_chars:
-            return
-        # Preserve higher-priority and newer context first.
+        # Account for the rendered role prefix and separators, not just raw
+        # content. This makes max_chars an actual output-size contract.
         ordered = sorted(self.items, key=lambda i: (i.priority, i.timestamp), reverse=True)
         kept: list[ContextItem] = []
         used = 0
         for item in ordered:
-            if used + len(item.content) > self.max_chars and kept:
+            rendered_len = len(f"[{item.role}] {item.content}")
+            separator = 2 if kept else 0
+            if used + separator + rendered_len > self.max_chars:
                 continue
             kept.append(item)
-            used += len(item.content)
+            used += separator + rendered_len
         self.items = sorted(kept, key=lambda i: i.timestamp)
 
     def render(self) -> str:
-        return "\n\n".join(f"[{i.role}] {i.content}" for i in self.items)
+        rendered = "\n\n".join(f"[{i.role}] {i.content}" for i in self.items)
+        if len(rendered) <= self.max_chars:
+            return rendered
+        # A single oversized high-priority item is still bounded. Preserve the
+        # beginning because it contains the role and most useful context.
+        return rendered[: self.max_chars]
 
 
 @dataclass(slots=True)
@@ -122,8 +116,6 @@ class ApprovalRequest:
 
 
 class ApprovalGate:
-    """Human-in-the-loop gate. Nothing is auto-approved by this class."""
-
     def __init__(self) -> None:
         self.pending: dict[str, ApprovalRequest] = {}
 
@@ -173,8 +165,6 @@ class Subagent(Protocol):
 
 
 class FunctionSubagent:
-    """Adapter for a callable so specialized agents can be registered cheaply."""
-
     def __init__(self, fn: Callable[[str, SubagentSpec], str]) -> None:
         self.fn = fn
 
@@ -186,8 +176,6 @@ class FunctionSubagent:
 
 
 class AgentTeam:
-    """Registry and delegation layer for specialized ATLAS subagents."""
-
     def __init__(self, trace: TraceRecorder | None = None) -> None:
         self.agents: dict[str, tuple[SubagentSpec, Subagent]] = {}
         self.trace = trace
@@ -216,13 +204,6 @@ class SandboxPolicy:
 
 
 class Sandbox:
-    """Bounded subprocess workspace for risky developer/tool operations.
-
-    Network isolation is a policy flag exposed to callers; enforcing OS-level
-    network isolation is platform-specific and should be supplied by a Docker,
-    VM, or OS sandbox backend. This class never claims to provide that layer.
-    """
-
     def __init__(self, policy: SandboxPolicy | None = None, root: str | os.PathLike[str] | None = None) -> None:
         self.policy = policy or SandboxPolicy()
         self.root = Path(root) if root else Path(tempfile.mkdtemp(prefix="atlas-sandbox-"))
@@ -233,30 +214,14 @@ class Sandbox:
             raise ValueError("Sandbox command cannot be empty")
         started = time.monotonic()
         try:
-            proc = subprocess.run(
-                command,
-                cwd=self.root,
-                capture_output=True,
-                text=True,
-                timeout=timeout or self.policy.timeout,
-                check=False,
-                shell=False,
-                env={"PATH": os.environ.get("PATH", "")},
-            )
-            return {
-                "returncode": proc.returncode,
-                "stdout": proc.stdout[-self.policy.max_output :],
-                "stderr": proc.stderr[-self.policy.max_output :],
-                "duration": time.monotonic() - started,
-            }
+            proc = subprocess.run(command, cwd=self.root, capture_output=True, text=True,
+                                  timeout=timeout or self.policy.timeout, check=False, shell=False,
+                                  env={"PATH": os.environ.get("PATH", "")})
+            return {"returncode": proc.returncode, "stdout": proc.stdout[-self.policy.max_output:],
+                    "stderr": proc.stderr[-self.policy.max_output:], "duration": time.monotonic() - started}
         except subprocess.TimeoutExpired as exc:
-            return {
-                "returncode": None,
-                "stdout": str(exc.stdout or "")[-self.policy.max_output :],
-                "stderr": "sandbox timeout",
-                "duration": time.monotonic() - started,
-                "timeout": True,
-            }
+            return {"returncode": None, "stdout": str(exc.stdout or "")[-self.policy.max_output:],
+                    "stderr": "sandbox timeout", "duration": time.monotonic() - started, "timeout": True}
 
 
 @dataclass(slots=True)
@@ -268,8 +233,6 @@ class ModelCandidate:
 
 
 class ModelRouter:
-    """Select a configured model by task capability with deterministic fallback."""
-
     def __init__(self, models: Iterable[ModelCandidate] = ()) -> None:
         self.models = list(models)
 
@@ -310,8 +273,6 @@ class RecoveryController:
 
 
 class AgentRuntime:
-    """Single composition point for the advanced ATLAS subsystems."""
-
     def __init__(self, trace_path: str | None = None) -> None:
         self.trace = TraceRecorder([JsonlTrace(trace_path)])
         self.context = ContextManager()
@@ -322,11 +283,9 @@ class AgentRuntime:
         self.sandbox = Sandbox()
 
     def checkpoint(self) -> dict[str, Any]:
-        return {
-            "context": [asdict(i) for i in self.context.items],
-            "pending_approvals": [asdict(i) for i in self.approvals.pending.values() if i.status == "pending"],
-            "models": [asdict(m) | {"capabilities": sorted(m.capabilities)} for m in self.models.models],
-        }
+        return {"context": [asdict(i) for i in self.context.items],
+                "pending_approvals": [asdict(i) for i in self.approvals.pending.values() if i.status == "pending"],
+                "models": [asdict(m) | {"capabilities": sorted(m.capabilities)} for m in self.models.models]}
 
     def save_checkpoint(self, path: str | os.PathLike[str]) -> None:
         Path(path).write_text(json.dumps(self.checkpoint(), indent=2, default=str), encoding="utf-8")
