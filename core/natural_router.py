@@ -9,12 +9,12 @@ from core.application_registry import ApplicationRegistry
 
 
 class NaturalCapabilityRouter:
-    """Human-language front door with persistent application discovery.
+    """Deterministic natural-language front door for executable capabilities.
 
-    Common actions are deterministic. Application names are resolved with the
-    LLM only on a cache miss, then the local system tool performs and verifies
-    discovery. Verified executable paths are persisted and reused on later
-    requests without another LLM call.
+    The router recognizes intent and entities without requiring the LLM. For
+    applications, the first-use discovery path may use the LLM only to resolve
+    an ambiguous human description; actual filesystem discovery and launching
+    remain deterministic and verified.
     """
 
     def __init__(self, router: Any) -> None:
@@ -43,10 +43,31 @@ class NaturalCapabilityRouter:
         except Exception as exc:
             return f"{tool_name} tool error: {exc}"
 
+    @staticmethod
+    def _clean_application_candidate(candidate: str) -> str:
+        value = candidate.strip().strip(" .!?\"'")
+        value = re.sub(r"\b(?:app|application|program)\b", "", value, flags=re.I).strip()
+        # Natural suffixes that are instructions/context, not the app name.
+        value = re.sub(
+            r"\s+(?:on|in|from)\s+(?:my|the)\s+(?:laptop|computer|pc|desktop)\b.*$",
+            "",
+            value,
+            flags=re.I,
+        ).strip()
+        value = re.sub(r"\s+(?:on|in)\s+(?:my|the)\b.*$", "", value, flags=re.I).strip()
+        return value.strip(" .!?\"'")
+
     def _resolve_application_name(self, router: Any, candidate: str) -> str:
-        candidate = candidate.strip()
+        candidate = self._clean_application_candidate(candidate)
         if not candidate:
             return candidate
+
+        # A simple application name is already an excellent search key. Do not
+        # send it through the LLM, because an unavailable or confused model can
+        # hallucinate an unrelated executable (e.g. Atlas.exe for Spotify).
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+&'()-]{0,79}", candidate):
+            return candidate
+
         prompt = (
             "Extract the desktop application name from this request. "
             "Return ONLY the application name, with no explanation. "
@@ -54,8 +75,11 @@ class NaturalCapabilityRouter:
         )
         try:
             answer = router.brain.ask(prompt).strip()
+            if answer.startswith("LM Studio connection failed") or answer.startswith("LLM request failed"):
+                return candidate
             answer = re.sub(r"^(?:app(?:lication)?[_ ]?name)\s*:\s*", "", answer, flags=re.I)
             answer = answer.splitlines()[0].strip().strip("`\"'")
+            answer = self._clean_application_candidate(answer)
             if 0 < len(answer) <= 80:
                 return answer
         except Exception:
@@ -77,28 +101,30 @@ class NaturalCapabilityRouter:
         return None
 
     def _application_action(self, router: Any, action: str, candidate: str) -> str | None:
-        requested = candidate.strip()
+        requested = self._clean_application_candidate(candidate)
         if not requested:
             return "Tell me which application you mean."
 
         key = self.apps.normalize(requested)
         cached = self.apps.get(key)
         if cached:
+            if action == "find":
+                return f"Found '{requested}' at {cached}"
             result = self._execute(
                 router,
                 "system",
-                action="launch_application_path" if action == "launch" else "find_application",
+                action="launch_application_path",
                 application_name=requested,
                 application_path=cached,
             )
-            if result is not None:
+            if result is not None and "no longer valid" not in result.lower():
                 return result
 
         app_name = self._resolve_application_name(router, requested)
         discovered = self._execute(router, "system", action="find_application", application_name=app_name)
         path = self._first_verified_path(discovered)
         if path:
-            self.apps.remember(app_name, path, source="llm+system-discovery")
+            self.apps.remember(app_name, path, source="system-discovery")
             if action == "launch":
                 return self._execute(
                     router,
@@ -112,12 +138,7 @@ class NaturalCapabilityRouter:
 
     @staticmethod
     def _match(prompt: str) -> str | None:
-        """Return a deterministic capability route without requiring an instance.
-
-        Keeping this as a static method preserves the public helper API used by
-        existing callers/tests. Execution and application learning still happen
-        through the installed instance methods.
-        """
+        """Return a deterministic capability route without requiring an instance."""
         text = prompt.lower().strip()
 
         web_prefixes = (
@@ -153,14 +174,19 @@ class NaturalCapabilityRouter:
         )):
             return "context:window"
 
+        # Keep the app suffix outside the captured entity, and strip common
+        # computer-location context so "find Spotify app on my laptop" becomes
+        # exactly application:find:spotify.
         app_match = re.match(
-            r"^(find|locate|where is|open|launch|start|run)\s+(?:the\s+)?(.+?)(?:\s+(?:app|application|program))?[.!?]*$",
+            r"^(find|locate|where is|open|launch|start|run)\s+(?:the\s+)?(.+?)(?:\s+(?:app|application|program))?\s*[.!?]*$",
             text,
         )
         if app_match:
             verb, name = app_match.groups()
+            name = NaturalCapabilityRouter._clean_application_candidate(name)
             action = "find" if verb in {"find", "locate", "where is"} else "launch"
-            return f"application:{action}:{name.strip()}"
+            if name:
+                return f"application:{action}:{name}"
 
         return None
 
@@ -171,9 +197,8 @@ class NaturalCapabilityRouter:
                 return "Usage: search the web for <query>"
             return self._execute(router, "web", action="search", query=parts[2])
 
-        if parts[0] == "system":
-            if parts[1] == "info":
-                return self._execute(router, "system", action="info")
+        if parts[0] == "system" and parts[1] == "info":
+            return self._execute(router, "system", action="info")
 
         if parts[0] == "context":
             return self._execute(router, "context", action=parts[1])
