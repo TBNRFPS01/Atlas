@@ -5,6 +5,7 @@
   "dependencies": ["file"],
   "permissions": ["file:read", "file:write", "file:append"],
   "triggers": ["create a python", "write a script", "coding help", "generate code", "create a script"],
+  "requires_llm": false,
   "tools": ["file"],
   "entry": "run"
 }
