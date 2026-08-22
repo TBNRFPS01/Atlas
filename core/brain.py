@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import re
@@ -15,7 +15,6 @@ from utils.logger import get_logger
 
 class MessageRole(str, Enum):
     """Supported conversation roles for ATLAS history."""
-
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
@@ -25,19 +24,12 @@ class MessageRole(str, Enum):
 @dataclass(slots=True)
 class ConversationMessage:
     """A single message in ATLAS conversation history."""
-
     role: MessageRole
     content: str
 
 
 class Brain:
-    """Central LLM communication wrapper for ATLAS.
-
-    The class uses the official OpenAI Python SDK against LM Studio's
-    local OpenAI-compatible endpoint and keeps conversation history inside
-    the Brain layer.
-    """
-
+    """Central LLM communication wrapper for ATLAS."""
     DEFAULT_ENDPOINT = "http://localhost:1234/v1"
     DEFAULT_MODEL = "mistralai/ministral-3-3b"
     DEFAULT_SYSTEM_PROMPT = (
@@ -55,18 +47,10 @@ class Brain:
         (re.compile(r"\bi have\s+([0-9]+\s*(?:gb|tb|mb)\s+ram)", re.IGNORECASE), "ram"),
     )
 
-    def __init__(
-        self,
-        model: str | None = None,
-        endpoint: str | None = None,
-        api_key: str | None = None,
-        stream: bool = True,
-        history_limit: int = DEFAULT_HISTORY_LIMIT,
-        memory_store: FactStore | None = None,
-        temperature: float = 0.7,
-        max_tokens: int = 512,
-        config_manager=None,
-    ) -> None:
+    def __init__(self, model: str | None = None, endpoint: str | None = None,
+                 api_key: str | None = None, stream: bool = True,
+                 history_limit: int = DEFAULT_HISTORY_LIMIT, memory_store: FactStore | None = None,
+                 temperature: float = 0.7, max_tokens: int = 512, config_manager=None) -> None:
         self.config = config_manager
         if self.config is not None:
             model = model or self.config.get("model")
@@ -79,7 +63,6 @@ class Brain:
             endpoint = endpoint or os.getenv("LM_STUDIO_BASE_URL", self.DEFAULT_ENDPOINT)
             temperature = temperature or 0.7
             max_tokens = max_tokens or 512
-
         self.endpoint = endpoint
         self.api_key = api_key or os.getenv("LM_STUDIO_API_KEY", "lm-studio")
         self.stream = stream if stream is not None else os.getenv("LM_STUDIO_STREAM", "true").lower() == "true"
@@ -88,17 +71,11 @@ class Brain:
         self.memory_store = memory_store or FactStore()
         self.temperature = temperature
         self.max_tokens = max_tokens
-        # LM Studio models can expose chat templates that reject the OpenAI
-        # `system` role. Keep the assistant identity, but merge it into the
-        # first user message for local inference by default. Set
-        # LM_STUDIO_SYSTEM_ROLE=true to use a native system message instead.
+        # Some LM Studio chat templates reject the system role. Keep the
+        # instruction content but fold it into the first user message by default.
+        # Set LM_STUDIO_SYSTEM_ROLE=true when the loaded model supports system.
         self.use_system_role = os.getenv("LM_STUDIO_SYSTEM_ROLE", "false").lower() == "true"
-        self.client: Any = OpenAI(
-            base_url=self.endpoint,
-            api_key=self.api_key,
-            timeout=10,
-            max_retries=0,
-        )
+        self.client: Any = OpenAI(base_url=self.endpoint, api_key=self.api_key, timeout=10, max_retries=0)
         self.history: list[ConversationMessage] = []
         self.system_prompt = self.DEFAULT_SYSTEM_PROMPT
         self.logger = get_logger("ATLAS")
@@ -110,20 +87,11 @@ class Brain:
         gateway_key = self.config.get("gateway_api_key", "")
         if not gateway_key:
             return None
-        gateway = GatewayProvider(
-            api_key=gateway_key,
-            models=self.config.get_gateway_models(),
-            base_url=self.config.get("gateway_base_url", GatewayProvider.DEFAULT_BASE_URL),
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-        )
-        local = LocalProvider(
-            base_url=self.endpoint,
-            api_key=self.api_key,
-            model=self.model,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
-        )
+        gateway = GatewayProvider(api_key=gateway_key, models=self.config.get_gateway_models(),
+                                  base_url=self.config.get("gateway_base_url", GatewayProvider.DEFAULT_BASE_URL),
+                                  temperature=self.temperature, max_tokens=self.max_tokens)
+        local = LocalProvider(base_url=self.endpoint, api_key=self.api_key, model=self.model,
+                              temperature=self.temperature, max_tokens=self.max_tokens)
         if self.config.get("fallback_provider", "local") != "none":
             if self.config.get("primary_provider", "local") == "gateway":
                 return MultiProvider(primary=gateway, fallback=local)
@@ -136,8 +104,7 @@ class Brain:
 
     def trim_history(self) -> None:
         if len(self.history) > self.history_limit:
-            excess = len(self.history) - self.history_limit
-            del self.history[:excess]
+            del self.history[:len(self.history) - self.history_limit]
 
     def clear_history(self) -> None:
         self.history.clear()
@@ -151,26 +118,17 @@ class Brain:
         try:
             available = self.client.models.list()
             data = getattr(available, "data", None) or []
-            if data:
-                model_name = data[0].id
-                if model_name:
-                    self.model = model_name
-                    return model_name
+            if data and data[0].id:
+                self.model = data[0].id
+                return self.model
         except Exception:
             pass
         return self.model
 
     def _history_messages(self, context: str = "") -> list[dict[str, str]]:
-        """Build a provider-compatible conversation history.
-
-        Some local chat templates reject ``system`` roles entirely. Unless
-        explicitly enabled with LM_STUDIO_SYSTEM_ROLE=true, ATLAS folds its
-        system identity and memory context into the first user message. This
-        preserves the instructions without sending an unsupported role.
-        """
+        """Build messages without unsupported system roles unless explicitly enabled."""
         messages: list[dict[str, str]] = []
         system_parts: list[str] = []
-
         if self.system_prompt:
             system_parts.append(self.system_prompt)
         for item in self.history:
@@ -178,64 +136,51 @@ class Brain:
                 system_parts.append(item.content)
         if context:
             system_parts.append(f"Relevant memory context:\n{context}")
+        system_text = "\n\n".join(system_parts)
+
+        if self.use_system_role and system_text:
+            messages.append({"role": "system", "content": system_text})
 
         for item in self.history:
             if item.role == MessageRole.SYSTEM:
                 continue
             role = item.role.value
             content = item.content
-            if not messages and role == "user" and system_parts and not self.use_system_role:
-                content = "\n\n".join(system_parts) + f"\n\nUser request:\n{content}"
-            if self.use_system_role and not messages and system_parts:
-                messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+            if not self.use_system_role and not messages and role == "user" and system_text:
+                content = f"{system_text}\n\nUser request:\n{content}"
             if messages and role in {"user", "assistant"} and messages[-1]["role"] == role:
                 messages[-1]["content"] += f"\n\n{content}"
             else:
                 messages.append({"role": role, "content": content})
-
-        # ask()/ask_stream() normally have a user message, but keep the helper
-        # valid for callers that inspect history before the first turn.
-        if not messages and system_parts:
-            if self.use_system_role:
-                messages.append({"role": "system", "content": "\n\n".join(system_parts)})
-            else:
-                messages.append({"role": "user", "content": "\n\n".join(system_parts)})
         return messages
 
     def _extract_text(self, response: Any) -> str:
         choice = getattr(response, "choices", [None])[0]
         message = getattr(choice, "message", None)
         content = getattr(message, "content", None)
-        if isinstance(content, str):
-            return content.strip()
-        return "No response returned."
+        return content.strip() if isinstance(content, str) else "No response returned."
 
     def _memory_context(self, prompt: str) -> str:
         if self.memory_store is None:
             return ""
-        relevant = self.memory_store.retrieve(prompt, limit=5)
-        return "\n".join(r.content for r in relevant)
+        return "\n".join(r.content for r in self.memory_store.retrieve(prompt, limit=5))
 
     def _extract_memories(self, prompt: str) -> None:
         if self.memory_store is None:
             return
         normalized = prompt.strip()
-        if len(normalized) < 6:
-            return
-        lowered = normalized.lower()
-        if lowered in {"hi", "hello", "hey", "thanks", "thank you", "good morning", "good night"}:
+        if len(normalized) < 6 or normalized.lower() in {"hi", "hello", "hey", "thanks", "thank you", "good morning", "good night"}:
             return
         for pattern, key in self.MEMORY_PATTERNS:
             match = pattern.search(normalized)
-            if not match:
-                continue
-            value = match.group(1).strip()
-            existing = self.memory_store.recall(key)
-            if existing is None:
-                self.memory_store.remember(key, value, category="fact")
-            elif existing != value:
-                self.memory_store.update(key, value, category="fact")
-            return
+            if match:
+                value = match.group(1).strip()
+                existing = self.memory_store.recall(key)
+                if existing is None:
+                    self.memory_store.remember(key, value, category="fact")
+                elif existing != value:
+                    self.memory_store.update(key, value, category="fact")
+                return
 
     def _call_provider(self, operation: str, call) -> str:
         try:
@@ -260,14 +205,11 @@ class Brain:
     def ask(self, prompt: str) -> str:
         self.add_message(MessageRole.USER, prompt)
         self._extract_memories(prompt)
-        context = self._memory_context(prompt)
-        messages = self._history_messages(context)
-
+        messages = self._history_messages(self._memory_context(prompt))
         def call():
             if self.provider is not None:
                 return self.provider.chat(messages=messages, model=self._resolve_model_name(), temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
             return self.client.chat.completions.create(model=self._resolve_model_name(), messages=messages, temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
-
         answer = self._call_provider("LLM", call)
         if not answer.startswith("LM Studio") and not answer.startswith("LLM request"):
             self.add_message(MessageRole.ASSISTANT, answer)
@@ -277,22 +219,65 @@ class Brain:
     def ask_stream(self, prompt: str) -> Iterator[str]:
         self.add_message(MessageRole.USER, prompt)
         self._extract_memories(prompt)
-        context = self._memory_context(prompt)
-        messages = self._history_messages(context)
+        messages = self._history_messages(self._memory_context(prompt))
         collected: list[str] = []
-
         def stream_call():
             if self.provider is not None:
                 return self.provider.chat_stream(messages=messages, model=self._resolve_model_name(), temperature=self.temperature, max_tokens=self.max_tokens)
             return self.client.chat.completions.create(model=self._resolve_model_name(), messages=messages, temperature=self.temperature, max_tokens=self.max_tokens, stream=True)
+        def stream_wrapper():
+            for chunk in stream_call():
+                delta = getattr(chunk.choices[0].delta, "content", None)
+                if delta:
+                    collected.append(delta)
+                    yield delta
+        for delta in self._call_provider_stream("LLM", stream_wrapper):
+            yield delta
+        if collected:
+            full = "".join(collected).strip()
+            self.add_message(MessageRole.ASSISTANT, full)
+            self._extract_memories(full)
 
-        for chunk in self._call_provider_stream("LLM", stream_call):
-            text = chunk if isinstance(chunk, str) else self._extract_text(chunk)
-            if text:
-                collected.append(text)
-                yield text
+    def chat(self, messages: list[dict[str, str]]) -> str:
+        def call():
+            payload = list(messages)
+            if self.use_system_role:
+                payload.insert(0, {"role": "system", "content": self.system_prompt})
+            elif payload and payload[0].get("role") == "user":
+                payload[0] = {**payload[0], "content": f"{self.system_prompt}\n\nUser request:\n{payload[0].get('content', '')}"}
+            if self.provider is not None:
+                return self.provider.chat(messages=payload, model=self._resolve_model_name(), temperature=0.7, max_tokens=self.max_tokens, stream=False)
+            return self.client.chat.completions.create(model=self._resolve_model_name(), messages=payload, temperature=0.7, max_tokens=self.max_tokens, stream=False)
+        return self._call_provider("LLM chat", call)
 
-        answer = "".join(collected).strip()
-        if answer and not answer.startswith("LM Studio") and not answer.startswith("LLM request"):
-            self.add_message(MessageRole.ASSISTANT, answer)
-            self._extract_memories(answer)
+    def chat_stream(self, messages: list[dict[str, str]]) -> Iterator[str]:
+        def stream_call():
+            payload = list(messages)
+            if self.use_system_role:
+                payload.insert(0, {"role": "system", "content": self.system_prompt})
+            elif payload and payload[0].get("role") == "user":
+                payload[0] = {**payload[0], "content": f"{self.system_prompt}\n\nUser request:\n{payload[0].get('content', '')}"}
+            if self.provider is not None:
+                return self.provider.chat_stream(messages=payload, model=self._resolve_model_name(), temperature=0.7, max_tokens=self.max_tokens)
+            return self.client.chat.completions.create(model=self._resolve_model_name(), messages=payload, temperature=0.7, stream=True)
+        def stream_wrapper():
+            for chunk in stream_call():
+                delta = getattr(chunk.choices[0].delta, "content", None)
+                if delta:
+                    yield delta
+        yield from self._call_provider_stream("LLM chat", stream_wrapper)
+
+    def analyze_image(self, image_bytes: bytes, prompt: str = "Describe what you see.") -> str:
+        import base64
+        def call():
+            encoded = base64.b64encode(image_bytes).decode("ascii")
+            user_content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}}]
+            messages = [{"role": "user", "content": user_content}]
+            if self.use_system_role:
+                messages.insert(0, {"role": "system", "content": self.system_prompt})
+            else:
+                user_content.insert(0, {"type": "text", "text": self.system_prompt})
+            if self.provider is not None:
+                return self.provider.chat(messages=messages, model=self._resolve_model_name(), temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
+            return self.client.chat.completions.create(model=self._resolve_model_name(), messages=messages, temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
+        return self._call_provider("Vision", call)
