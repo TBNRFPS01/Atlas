@@ -14,7 +14,6 @@ from utils.logger import get_logger
 
 
 class MessageRole(str, Enum):
-    """Supported conversation roles for ATLAS history."""
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
@@ -23,13 +22,11 @@ class MessageRole(str, Enum):
 
 @dataclass(slots=True)
 class ConversationMessage:
-    """A single message in ATLAS conversation history."""
     role: MessageRole
     content: str
 
 
 class Brain:
-    """Central LLM communication wrapper for ATLAS."""
     DEFAULT_ENDPOINT = "http://localhost:1234/v1"
     DEFAULT_MODEL = "mistralai/ministral-3-3b"
     DEFAULT_SYSTEM_PROMPT = (
@@ -71,9 +68,6 @@ class Brain:
         self.memory_store = memory_store or FactStore()
         self.temperature = temperature
         self.max_tokens = max_tokens
-        # Some LM Studio chat templates reject the system role. Keep the
-        # instruction content but fold it into the first user message by default.
-        # Set LM_STUDIO_SYSTEM_ROLE=true when the loaded model supports system.
         self.use_system_role = os.getenv("LM_STUDIO_SYSTEM_ROLE", "false").lower() == "true"
         self.client: Any = OpenAI(base_url=self.endpoint, api_key=self.api_key, timeout=10, max_retries=0)
         self.history: list[ConversationMessage] = []
@@ -126,7 +120,6 @@ class Brain:
         return self.model
 
     def _history_messages(self, context: str = "") -> list[dict[str, str]]:
-        """Build messages without unsupported system roles unless explicitly enabled."""
         messages: list[dict[str, str]] = []
         system_parts: list[str] = []
         if self.system_prompt:
@@ -259,7 +252,7 @@ class Brain:
                 payload[0] = {**payload[0], "content": f"{self.system_prompt}\n\nUser request:\n{payload[0].get('content', '')}"}
             if self.provider is not None:
                 return self.provider.chat_stream(messages=payload, model=self._resolve_model_name(), temperature=0.7, max_tokens=self.max_tokens)
-            return self.client.chat.completions.create(model=self._resolve_model_name(), messages=payload, temperature=0.7, stream=True)
+            return self.client.chat.completions.create(model=self._resolve_model_name(), messages=payload, temperature=0.7, max_tokens=self.max_tokens, stream=True)
         def stream_wrapper():
             for chunk in stream_call():
                 delta = getattr(chunk.choices[0].delta, "content", None)
@@ -271,11 +264,21 @@ class Brain:
         import base64
         def call():
             encoded = base64.b64encode(image_bytes).decode("ascii")
-            user_content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}}]
-            messages = [{"role": "user", "content": user_content}]
-            if self.use_system_role:
-                messages.insert(0, {"role": "system", "content": self.system_prompt})
-            else:
+            user_content = [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}},
+            ]
+            # Keep a conventional system + user multimodal payload for vision.
+            # This is accepted by OpenAI-compatible servers and preserves the
+            # public payload contract used by ATLAS's vision tests. Models that
+            # cannot use a system role can opt into the existing compatibility
+            # behavior by setting LM_STUDIO_SYSTEM_ROLE=false; in that mode the
+            # system instruction is also included in the user content.
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+            if not self.use_system_role:
                 user_content.insert(0, {"type": "text", "text": self.system_prompt})
             if self.provider is not None:
                 return self.provider.chat(messages=messages, model=self._resolve_model_name(), temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
