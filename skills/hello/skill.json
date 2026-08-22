@@ -5,6 +5,7 @@
   "dependencies": [],
   "permissions": [],
   "triggers": ["say hi atlas"],
+  "requires_llm": false,
   "tools": [],
   "entry": "run"
 }
