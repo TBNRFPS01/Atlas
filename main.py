@@ -7,6 +7,7 @@ from config.manager import ConfigManager
 from core.brain import Brain
 from core.events import EventBus
 from core.router import Router
+from core.natural_router import install as install_natural_routing
 from memory.experience import ExperienceStore
 from memory.facts import FactStore
 from memory.goals import GoalManager
@@ -90,6 +91,10 @@ def main() -> None:
         goals=goals,
         experiences=experiences,
     )
+    # Deterministic natural-language capability routing sits in front of the
+    # existing router. It only handles unambiguous requests and delegates all
+    # other behavior to the original routing/policy stack.
+    install_natural_routing(router)
 
     plugin_manager = PluginManager()
     plugin_manager.discover()
