@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -11,10 +12,16 @@ class Intent:
     target: str | None = None
     arguments: dict[str, str] = field(default_factory=dict)
     confidence: float = 1.0
+    skill: Any | None = None
+    requires_llm: bool = False
 
 
 class IntentExtractor:
-    """Extract unambiguous local commands without consulting an LLM."""
+    """Extract unambiguous local commands without consulting an LLM.
+
+    Built-in commands remain deterministic. Skill-provided triggers are
+    registered at runtime by ``FastIntentRouter``.
+    """
 
     _PATTERNS = (
         ("open_app", re.compile(r"^(?:open|launch|start)\s+(.+)$", re.I)),
