@@ -25,8 +25,8 @@ class Router:
     """Intelligent request router for ATLAS.
 
     Requests first get a deterministic fast-path attempt. Unambiguous commands
-    are dispatched without waking the LLM; everything else continues through
-    ATLAS's existing command, task, skill, tool, and LLM pipelines.
+    and eligible skill triggers are dispatched without waking the LLM; everything
+    else continues through ATLAS's existing command, task, skill, tool, and LLM pipelines.
     """
 
     def __init__(
@@ -48,7 +48,6 @@ class Router:
         self._undo = UndoStack()
         self._trace: list[str] = []
         self._call_log: list[dict[str, Any]] = []
-        self._fast_router = FastIntentRouter()
         self._context = ContextStore()
         if registry is None:
             from tools.registry import ToolRegistry
@@ -66,6 +65,7 @@ class Router:
         )
         self._skill_manager.load_all()
         self._skills = self._skill_manager.list()
+        self._fast_router = FastIntentRouter(skills=self._skills)
         self._config = config
         self._state = state_store or AgentStateStore()
         self._goals = goals or GoalManager(memory=self.memory)
@@ -82,11 +82,28 @@ class Router:
         )
 
     def _try_fast_path(self, prompt: str) -> str | None:
-        """Resolve context and dispatch an unambiguous command without the LLM."""
+        """Resolve context and dispatch an unambiguous command or skill without the LLM."""
         resolved = self._context.resolve(prompt)
         intent = self._fast_router.route(resolved)
         if intent is None:
             return None
+
+        if intent.name == "skill" and intent.skill is not None:
+            skill = intent.skill
+            ok, reason = self._skill_manager.can_run(skill)
+            if not ok:
+                self._record_trace("skill", skill.name, "blocked")
+                return f"Skill '{skill.name}' blocked: {reason}"
+            self._record_trace("fast_skill", skill.name, "")
+            result = skill.run(self, prompt)
+            self._context.remember(
+                prompt,
+                intent=intent.name,
+                target=skill.name,
+                result=result,
+            )
+            return result
+
         dispatch = self._fast_router.to_dispatch(intent)
         if dispatch is None:
             return None
@@ -99,6 +116,9 @@ class Router:
             result=result,
         )
         return result
+
+    def _skill_requires_llm(self, skill: object) -> bool:
+        return bool(getattr(skill, "requires_llm", False))
 
     def route(self, prompt: str) -> str:
         lowered = prompt.lower().strip()
@@ -127,6 +147,8 @@ class Router:
             return self.personality.respond(self._run_task(prompt))
         if self._skills:
             for skill in self._skills:
+                if self._skill_requires_llm(skill):
+                    continue
                 if skill.enabled and skill.valid and skill.matches(lowered):
                     ok, reason = self._skill_manager.can_run(skill)
                     if not ok:
@@ -174,6 +196,8 @@ class Router:
             return
         if self._skills:
             for skill in self._skills:
+                if self._skill_requires_llm(skill):
+                    continue
                 if skill.enabled and skill.valid and skill.matches(lowered):
                     ok, reason = self._skill_manager.can_run(skill)
                     if not ok:
