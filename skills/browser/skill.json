@@ -9,6 +9,7 @@
     "browser:back", "browser:forward", "browser:reload", "browser:get_text"
   ],
   "triggers": ["open browser", "browse to", "browser navigate", "launch browser", "go to website"],
+  "requires_llm": false,
   "tools": ["browser"],
   "entry": "run"
 }
