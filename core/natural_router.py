@@ -9,13 +9,7 @@ from core.application_registry import ApplicationRegistry
 
 
 class NaturalCapabilityRouter:
-    """Deterministic natural-language front door for executable capabilities.
-
-    The router recognizes intent and entities without requiring the LLM. For
-    applications, the first-use discovery path may use the LLM only to resolve
-    an ambiguous human description; actual filesystem discovery and launching
-    remain deterministic and verified.
-    """
+    """Deterministic natural-language front door for executable capabilities."""
 
     def __init__(self, router: Any) -> None:
         self.router = router
@@ -46,28 +40,23 @@ class NaturalCapabilityRouter:
     @staticmethod
     def _clean_application_candidate(candidate: str) -> str:
         value = candidate.strip().strip(" .!?\"'")
-        value = re.sub(r"\b(?:app|application|program)\b", "", value, flags=re.I).strip()
-        # Natural suffixes that are instructions/context, not the app name.
+        # Strip only semantic suffixes, not words that may legitimately be
+        # part of an application name such as "Windows Terminal".
+        value = re.sub(r"\s+(?:app|application|program)\b", "", value, flags=re.I).strip()
         value = re.sub(
             r"\s+(?:on|in|from)\s+(?:my|the)\s+(?:laptop|computer|pc|desktop)\b.*$",
             "",
             value,
             flags=re.I,
         ).strip()
-        value = re.sub(r"\s+(?:on|in)\s+(?:my|the)\b.*$", "", value, flags=re.I).strip()
         return value.strip(" .!?\"'")
 
     def _resolve_application_name(self, router: Any, candidate: str) -> str:
         candidate = self._clean_application_candidate(candidate)
         if not candidate:
             return candidate
-
-        # A simple application name is already an excellent search key. Do not
-        # send it through the LLM, because an unavailable or confused model can
-        # hallucinate an unrelated executable (e.g. Atlas.exe for Spotify).
         if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+&'()-]{0,79}", candidate):
             return candidate
-
         prompt = (
             "Extract the desktop application name from this request. "
             "Return ONLY the application name, with no explanation. "
@@ -78,8 +67,7 @@ class NaturalCapabilityRouter:
             if answer.startswith("LM Studio connection failed") or answer.startswith("LLM request failed"):
                 return candidate
             answer = re.sub(r"^(?:app(?:lication)?[_ ]?name)\s*:\s*", "", answer, flags=re.I)
-            answer = answer.splitlines()[0].strip().strip("`\"'")
-            answer = self._clean_application_candidate(answer)
+            answer = self._clean_application_candidate(answer.splitlines()[0].strip().strip("`\"'"))
             if 0 < len(answer) <= 80:
                 return answer
         except Exception:
@@ -93,9 +81,7 @@ class NaturalCapabilityRouter:
         for line in result.splitlines():
             match = re.search(r"(?:Found[^:]*:\s*)([A-Za-z]:[\\/].+)$", line)
             if match:
-                path = match.group(1).strip().strip('"')
-                if path:
-                    return path
+                return match.group(1).strip().strip('"')
             if re.fullmatch(r"[A-Za-z]:[\\/].+", line.strip()):
                 return line.strip()
         return None
@@ -104,19 +90,12 @@ class NaturalCapabilityRouter:
         requested = self._clean_application_candidate(candidate)
         if not requested:
             return "Tell me which application you mean."
-
         key = self.apps.normalize(requested)
         cached = self.apps.get(key)
         if cached:
             if action == "find":
                 return f"Found '{requested}' at {cached}"
-            result = self._execute(
-                router,
-                "system",
-                action="launch_application_path",
-                application_name=requested,
-                application_path=cached,
-            )
+            result = self._execute(router, "system", action="launch_application_path", application_name=requested, application_path=cached)
             if result is not None and "no longer valid" not in result.lower():
                 return result
 
@@ -126,13 +105,7 @@ class NaturalCapabilityRouter:
         if path:
             self.apps.remember(app_name, path, source="system-discovery")
             if action == "launch":
-                return self._execute(
-                    router,
-                    "system",
-                    action="launch_application_path",
-                    application_name=app_name,
-                    application_path=path,
-                )
+                return self._execute(router, "system", action="launch_application_path", application_name=app_name, application_path=path)
             return f"Found '{app_name}' at {path}"
         return discovered
 
@@ -141,11 +114,10 @@ class NaturalCapabilityRouter:
         """Return a deterministic capability route without requiring an instance."""
         text = prompt.lower().strip()
 
-        web_prefixes = (
+        for prefix in (
             "search the web for ", "search the web ", "search web for ",
             "search online for ", "look up ", "google ", "find information about ",
-        )
-        for prefix in web_prefixes:
+        ):
             if text.startswith(prefix):
                 query = prompt[len(prefix):].strip()
                 return f"web:search:{query}" if query else "web:missing"
@@ -167,27 +139,24 @@ class NaturalCapabilityRouter:
             "show running apps", "list running apps", "check what's open", "check what is open",
         )):
             return "context:apps"
-
         if any(p in text for p in (
             "what window is active", "what's my active window", "what is my active window",
             "what window am i on", "current window", "active window",
         )):
             return "context:window"
 
-        # Keep the app suffix outside the captured entity, and strip common
-        # computer-location context so "find Spotify app on my laptop" becomes
-        # exactly application:find:spotify.
-        app_match = re.match(
-            r"^(find|locate|where is|open|launch|start|run)\s+(?:the\s+)?(.+?)(?:\s+(?:app|application|program))?\s*[.!?]*$",
-            text,
-        )
+        # Parse the application request in two stages. First remove trailing
+        # computer context, then remove the optional app/application/program
+        # classifier. This avoids the regex greediness that turned
+        # "find Spotify app on my laptop" into the entity
+        # "Spotify app on my laptop".
+        app_match = re.match(r"^(find|locate|where is|open|launch|start|run)\s+(?:the\s+)?(.+?)\s*[.!?]*$", text)
         if app_match:
             verb, name = app_match.groups()
             name = NaturalCapabilityRouter._clean_application_candidate(name)
             action = "find" if verb in {"find", "locate", "where is"} else "launch"
             if name:
                 return f"application:{action}:{name}"
-
         return None
 
     def _dispatch(self, router: Any, prompt: str, match: str) -> str | None:
@@ -196,16 +165,12 @@ class NaturalCapabilityRouter:
             if parts[1] == "missing":
                 return "Usage: search the web for <query>"
             return self._execute(router, "web", action="search", query=parts[2])
-
         if parts[0] == "system" and parts[1] == "info":
             return self._execute(router, "system", action="info")
-
         if parts[0] == "context":
             return self._execute(router, "context", action=parts[1])
-
         if parts[0] == "application":
             return self._application_action(router, parts[1], parts[2])
-
         return None
 
     def _route(self, router: Any, prompt: str) -> str:
