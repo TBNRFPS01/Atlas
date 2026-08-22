@@ -31,9 +31,11 @@ def test_active_window_routes_to_context():
     assert match("what window is active?") == "context:window"
 
 
-def test_find_and_open_spotify_route_to_system():
-    assert match("find Spotify app on my laptop") == "system:find_application:spotify"
-    assert match("open Spotify") == "system:launch_application:spotify"
+def test_generic_application_requests_are_not_hardcoded():
+    assert match("find Spotify app on my laptop") == "application:find:spotify"
+    assert match("open Spotify") == "application:launch:spotify"
+    assert match("locate Discord application") == "application:find:discord"
+    assert match("launch VS Code") == "application:launch:vs code"
 
 
 def test_normal_conversation_is_not_captured():
