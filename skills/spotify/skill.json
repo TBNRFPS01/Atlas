@@ -5,6 +5,7 @@
   "dependencies": ["spotify"],
   "permissions": ["spotify:play", "spotify:control"],
   "triggers": ["^spotify "],
+  "requires_llm": false,
   "tools": ["spotify"],
   "entry": "run"
 }
