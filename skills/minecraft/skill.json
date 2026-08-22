@@ -5,6 +5,7 @@
   "dependencies": ["minecraft"],
   "permissions": ["minecraft:status"],
   "triggers": ["minecraft"],
+  "requires_llm": false,
   "tools": ["minecraft"],
   "entry": "run"
 }
