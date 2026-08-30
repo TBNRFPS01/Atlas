@@ -40,8 +40,6 @@ class NaturalCapabilityRouter:
     @staticmethod
     def _clean_application_candidate(candidate: str) -> str:
         value = candidate.strip().strip(" .!?\"'")
-        # Strip only semantic suffixes, not words that may legitimately be
-        # part of an application name such as "Windows Terminal".
         value = re.sub(r"\s+(?:app|application|program)\b", "", value, flags=re.I).strip()
         value = re.sub(
             r"\s+(?:on|in|from)\s+(?:my|the)\s+(?:laptop|computer|pc|desktop)\b.*$",
@@ -111,7 +109,12 @@ class NaturalCapabilityRouter:
 
     @staticmethod
     def _match(prompt: str) -> str | None:
-        """Return a deterministic capability route without requiring an instance."""
+        """Route only unambiguous capabilities before the normal LLM path.
+
+        In particular, ``Where is Pakistan?`` is a knowledge question, not
+        an application lookup. Application discovery therefore uses explicit
+        action verbs such as ``find`` or ``locate`` instead of ``where is``.
+        """
         text = prompt.lower().strip()
 
         for prefix in (
@@ -145,16 +148,14 @@ class NaturalCapabilityRouter:
         )):
             return "context:window"
 
-        # Parse the application request in two stages. First remove trailing
-        # computer context, then remove the optional app/application/program
-        # classifier. This avoids the regex greediness that turned
-        # "find Spotify app on my laptop" into the entity
-        # "Spotify app on my laptop".
-        app_match = re.match(r"^(find|locate|where is|open|launch|start|run)\s+(?:the\s+)?(.+?)\s*[.!?]*$", text)
+        app_match = re.match(
+            r"^(find|locate|open|launch|start|run)\s+(?:the\s+)?(.+?)\s*[.!?]*$",
+            text,
+        )
         if app_match:
             verb, name = app_match.groups()
             name = NaturalCapabilityRouter._clean_application_candidate(name)
-            action = "find" if verb in {"find", "locate", "where is"} else "launch"
+            action = "find" if verb in {"find", "locate"} else "launch"
             if name:
                 return f"application:{action}:{name}"
         return None
