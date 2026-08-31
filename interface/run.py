@@ -1,9 +1,7 @@
 """Entry point for launching the ATLAS desktop UI.
 
-Wires the existing ATLAS backend (config, memory, brain, router, tools,
-voice) into the tkinter interface. Run with:
-
-    python -m interface.run
+Wires the existing ATLAS backend (config, memory, brain, router, tools, voice)
+into the tkinter interface.
 """
 from __future__ import annotations
 
@@ -13,9 +11,13 @@ def build_backend():
     from config.manager import ConfigManager
     from core.brain import Brain
     from core.router import Router
+    from core.smart_provider import SmartProvider
+    from core.openrouter import OpenRouterProvider
+    from core.providers import LocalProvider, GatewayProvider
     from memory.facts import FactStore
     from tools.registry import ToolRegistry
     from voice.controller import VoiceController
+    import os
 
     config = ConfigManager()
     memory = FactStore()
@@ -27,6 +29,45 @@ def build_backend():
         temperature=config.get("temperature"),
         max_tokens=config.get("max_tokens"),
     )
+
+    # The GUI uses the same task-aware provider path as the CLI.
+    if config.get("openrouter_enabled", False):
+        openrouter_key = config.get("openrouter_api_key", "") or os.getenv("OPENROUTER_API_KEY", "")
+        if openrouter_key:
+            local = LocalProvider(
+                base_url=brain.endpoint,
+                api_key=brain.api_key,
+                model=brain.model,
+                temperature=brain.temperature,
+                max_tokens=brain.max_tokens,
+            )
+            cloud = OpenRouterProvider(
+                api_key=openrouter_key,
+                model=config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL),
+                models=config.get_openrouter_models(),
+                base_url=config.get("openrouter_base_url", OpenRouterProvider.DEFAULT_BASE_URL),
+                temperature=brain.temperature,
+                max_tokens=brain.max_tokens,
+                site_url=config.get("openrouter_site_url", ""),
+                app_name=config.get("openrouter_app_name", "ATLAS"),
+            )
+            providers = {"local": local, "openrouter": cloud}
+            gateway_key = config.get("gateway_api_key", "")
+            if config.get("gateway_enabled", False) and gateway_key:
+                providers["gateway"] = GatewayProvider(
+                    api_key=gateway_key,
+                    models=config.get_gateway_models(),
+                    base_url=config.get("gateway_base_url", GatewayProvider.DEFAULT_BASE_URL),
+                    temperature=brain.temperature,
+                    max_tokens=brain.max_tokens,
+                )
+            brain.provider = SmartProvider(
+                providers,
+                local_model=brain.model,
+                cloud_model=config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL),
+                prefer_local=True,
+            )
+
     router = Router(brain=brain, memory=memory, registry=registry, config=config)
 
     voice_enabled = config.get("voice_enabled", False)
@@ -62,7 +103,6 @@ def build_backend():
 
 
 def main() -> None:
-    # Apply component-level geometry corrections before any widgets are built.
     from interface.layout_fixes import apply_layout_fixes
     apply_layout_fixes()
 
