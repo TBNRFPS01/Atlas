@@ -1,7 +1,7 @@
 {
   "model": "local-model",
   "temperature": 0.7,
-  "max_tokens": 512,
+  "max_tokens": 1024,
   "history_size": 60,
   "stream": true,
   "voice_enabled": false,
@@ -22,5 +22,12 @@
   "autonomy_enabled": false,
   "autonomy_interval_seconds": 600,
   "autonomy_max_tasks_per_cycle": 2,
-  "learning_enabled": true
+  "learning_enabled": true,
+  "openrouter_enabled": true,
+  "openrouter_model": "qwen/qwen3-32b:free",
+  "openrouter_models": "qwen/qwen3-32b:free,openrouter/free",
+  "openrouter_base_url": "https://openrouter.ai/api/v1",
+  "openrouter_app_name": "ATLAS",
+  "primary_provider": "openrouter",
+  "fallback_provider": "local"
 }
