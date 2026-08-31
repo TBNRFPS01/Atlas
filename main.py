@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import threading
 
@@ -9,6 +10,9 @@ from core.events import EventBus
 from core.execution import ExecutionPipeline
 from core.router import Router
 from core.natural_router import install as install_natural_routing
+from core.smart_provider import SmartProvider
+from core.openrouter import OpenRouterProvider
+from core.providers import LocalProvider, GatewayProvider
 from memory.experience import ExperienceStore
 from memory.facts import FactStore
 from memory.goals import GoalManager
@@ -26,13 +30,53 @@ from voice.controller import VoiceController
 from voice.config import VOICE_ENABLED
 
 
-def install_execution_pipeline(router: Router, config: ConfigManager) -> None:
-    """Attach the single execution pipeline to the existing router.
+def install_smart_provider(brain: Brain, config: ConfigManager) -> None:
+    """Attach task-aware provider routing to the shared Brain instance."""
+    if not config.get("openrouter_enabled", False):
+        return
+    openrouter_key = config.get("openrouter_api_key", "") or os.getenv("OPENROUTER_API_KEY", "")
+    if not openrouter_key:
+        return
 
-    Router authorization remains the policy gate. Every timed tool call then
-    passes through one execution boundary for retries, verification defaults,
-    checkpoints, dry-run mode, and loop detection.
-    """
+    local = LocalProvider(
+        base_url=brain.endpoint,
+        api_key=brain.api_key,
+        model=brain.model,
+        temperature=brain.temperature,
+        max_tokens=brain.max_tokens,
+    )
+    cloud = OpenRouterProvider(
+        api_key=openrouter_key,
+        model=config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL),
+        models=config.get_openrouter_models(),
+        base_url=config.get("openrouter_base_url", OpenRouterProvider.DEFAULT_BASE_URL),
+        temperature=brain.temperature,
+        max_tokens=brain.max_tokens,
+        site_url=config.get("openrouter_site_url", ""),
+        app_name=config.get("openrouter_app_name", "ATLAS"),
+    )
+    providers = {"local": local, "openrouter": cloud}
+
+    gateway_key = config.get("gateway_api_key", "")
+    if config.get("gateway_enabled", False) and gateway_key:
+        providers["gateway"] = GatewayProvider(
+            api_key=gateway_key,
+            models=config.get_gateway_models(),
+            base_url=config.get("gateway_base_url", GatewayProvider.DEFAULT_BASE_URL),
+            temperature=brain.temperature,
+            max_tokens=brain.max_tokens,
+        )
+
+    brain.provider = SmartProvider(
+        providers,
+        local_model=brain.model,
+        cloud_model=config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL),
+        prefer_local=True,
+    )
+
+
+def install_execution_pipeline(router: Router, config: ConfigManager) -> None:
+    """Attach the single execution pipeline to the existing router."""
     router._execution = ExecutionPipeline(
         max_retries=int(config.get("execution_max_retries", 1)),
         dry_run=bool(config.get("dry_run", False)),
@@ -40,19 +84,10 @@ def install_execution_pipeline(router: Router, config: ConfigManager) -> None:
     original = router._timed_tool_call
 
     def pipeline_call(tool_name: str, action: str, fn) -> str:
-        execution = router._execution.run(
-            tool_name,
-            action,
-            fn,
-            signature=f"{tool_name}:{action}",
-        )
-        # Keep the router's existing observability / /debug behavior intact.
+        execution = router._execution.run(tool_name, action, fn, signature=f"{tool_name}:{action}")
         router._call_log.append({
-            "tool": tool_name,
-            "action": action,
-            "ok": execution.ok,
-            "attempts": execution.attempts,
-            "verified": execution.verified,
+            "tool": tool_name, "action": action, "ok": execution.ok,
+            "attempts": execution.attempts, "verified": execution.verified,
             "error": execution.error,
         })
         if len(router._call_log) > 200:
@@ -60,7 +95,6 @@ def install_execution_pipeline(router: Router, config: ConfigManager) -> None:
         router._record_trace(tool_name, action, "ok" if execution.ok else "error")
         return str(execution.result)
 
-    # Keep a reference for diagnostics and replace the central execution hook.
     router._original_timed_tool_call = original
     router._timed_tool_call = pipeline_call
 
@@ -82,6 +116,8 @@ def print_startup_screen(brain: Brain, registry: ToolRegistry, config: ConfigMan
     print("  Loaded")
     print("Voice:")
     print("  " + ("✓ Enabled" if VOICE_ENABLED else "Disabled"))
+    print("AI Routing:")
+    print("  ✓ Smart local/cloud routing" if isinstance(brain.provider, SmartProvider) else "  Local/provider chain")
     print("====================================")
     print(f"Using LM Studio endpoint: {brain.endpoint}")
 
@@ -105,6 +141,7 @@ def main() -> None:
     registry.discover()
     brain = Brain(config_manager=config, history_limit=config.get("history_size"),
                    temperature=config.get("temperature"), max_tokens=config.get("max_tokens"))
+    install_smart_provider(brain, config)
     state_store = AgentStateStore()
     goals = GoalManager(memory=memory)
     experiences = ExperienceStore(memory=memory)
