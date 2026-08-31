@@ -77,14 +77,9 @@ class Brain:
         self.provider = self._build_provider()
 
     def _build_provider(self):
-        """Build the configured cloud/local provider chain.
-
-        OpenRouter is a first-class provider. If it is not configured with a
-        key, ATLAS continues to operate locally exactly as before.
-        """
+        """Build the configured cloud/local provider chain."""
         if self.config is None:
             return None
-
         providers: dict[str, Any] = {
             "local": LocalProvider(
                 base_url=self.endpoint,
@@ -94,7 +89,6 @@ class Brain:
                 max_tokens=self.max_tokens,
             )
         }
-
         gateway_key = self.config.get("gateway_api_key", "")
         if self.config.get("gateway_enabled", False) and gateway_key:
             providers["gateway"] = GatewayProvider(
@@ -104,7 +98,6 @@ class Brain:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
-
         openrouter_key = self.config.get("openrouter_api_key", "") or os.getenv("OPENROUTER_API_KEY", "")
         if self.config.get("openrouter_enabled", False) and openrouter_key:
             providers["openrouter"] = OpenRouterProvider(
@@ -117,18 +110,14 @@ class Brain:
                 site_url=self.config.get("openrouter_site_url", ""),
                 app_name=self.config.get("openrouter_app_name", "ATLAS"),
             )
-
         primary_name = self.config.get("primary_provider", "local")
         fallback_name = self.config.get("fallback_provider", "none")
         primary = providers.get(primary_name)
         fallback = providers.get(fallback_name) if fallback_name != "none" else None
-
-        # Missing cloud credentials never break startup. Fall back to local.
         if primary is None:
             primary = providers["local"]
         if fallback is primary:
             fallback = None
-
         if fallback is not None:
             return MultiProvider(primary=primary, fallback=fallback)
         if primary_name != "local" or self.config.get("openrouter_enabled", False) or self.config.get("gateway_enabled", False):
@@ -150,6 +139,8 @@ class Brain:
         self.system_prompt = prompt
 
     def _resolve_model_name(self) -> str:
+        if self.config is not None and self.config.get("primary_provider") == "openrouter" and self.config.get("openrouter_enabled", False):
+            return self.config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL)
         if self.model != self.DEFAULT_MODEL:
             return self.model
         try:
