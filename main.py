@@ -32,12 +32,7 @@ from voice.config import VOICE_ENABLED
 
 def install_smart_provider(brain: Brain, config: ConfigManager) -> None:
     """Attach task-aware provider routing to the shared Brain instance."""
-    if not config.get("openrouter_enabled", False):
-        return
-    openrouter_key = config.get("openrouter_api_key", "") or os.getenv("OPENROUTER_API_KEY", "")
-    if not openrouter_key:
-        return
-
+    providers: dict[str, object] = {}
     local = LocalProvider(
         base_url=brain.endpoint,
         api_key=brain.api_key,
@@ -45,17 +40,20 @@ def install_smart_provider(brain: Brain, config: ConfigManager) -> None:
         temperature=brain.temperature,
         max_tokens=brain.max_tokens,
     )
-    cloud = OpenRouterProvider(
-        api_key=openrouter_key,
-        model=config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL),
-        models=config.get_openrouter_models(),
-        base_url=config.get("openrouter_base_url", OpenRouterProvider.DEFAULT_BASE_URL),
-        temperature=brain.temperature,
-        max_tokens=brain.max_tokens,
-        site_url=config.get("openrouter_site_url", ""),
-        app_name=config.get("openrouter_app_name", "ATLAS"),
-    )
-    providers = {"local": local, "openrouter": cloud}
+    providers["local"] = local
+
+    openrouter_key = config.get("openrouter_api_key", "") or os.getenv("OPENROUTER_API_KEY", "")
+    if config.get("openrouter_enabled", False) and openrouter_key:
+        providers["openrouter"] = OpenRouterProvider(
+            api_key=openrouter_key,
+            model=config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL),
+            models=config.get_openrouter_models(),
+            base_url=config.get("openrouter_base_url", OpenRouterProvider.DEFAULT_BASE_URL),
+            temperature=brain.temperature,
+            max_tokens=brain.max_tokens,
+            site_url=config.get("openrouter_site_url", ""),
+            app_name=config.get("openrouter_app_name", "ATLAS"),
+        )
 
     gateway_key = config.get("gateway_api_key", "")
     if config.get("gateway_enabled", False) and gateway_key:
@@ -67,12 +65,21 @@ def install_smart_provider(brain: Brain, config: ConfigManager) -> None:
             max_tokens=brain.max_tokens,
         )
 
-    brain.provider = SmartProvider(
-        providers,
-        local_model=brain.model,
-        cloud_model=config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL),
-        prefer_local=True,
-    )
+    primary_name = config.get("primary_provider", "local")
+    fallback_name = config.get("fallback_provider", "none")
+    primary = providers.get(primary_name)
+    fallback = providers.get(fallback_name) if fallback_name != "none" else None
+    if primary is None:
+        primary = providers["local"]
+    if fallback is primary:
+        fallback = None
+
+    if primary_name != "local" or fallback is not None or config.get("openrouter_enabled") or config.get("gateway_enabled"):
+        if fallback is not None:
+            from core.providers import MultiProvider
+            brain.provider = MultiProvider(primary=primary, fallback=fallback)
+        else:
+            brain.provider = primary
 
 
 def install_execution_pipeline(router: Router, config: ConfigManager) -> None:
@@ -99,6 +106,109 @@ def install_execution_pipeline(router: Router, config: ConfigManager) -> None:
     router._timed_tool_call = pipeline_call
 
 
+def _mask_secret(value: str) -> str:
+    if not value:
+        return "not set"
+    return value[:7] + "..." if len(value) > 10 else "set"
+
+
+def configure_cli(config: ConfigManager) -> None:
+    """Interactive first-run/configuration screen for AI providers."""
+    while True:
+        print("\n====================================")
+        print("          ATLAS CONFIGURE")
+        print("====================================")
+        print("AI Providers")
+        print(f"  1. OpenRouter   {'✓ configured' if config.get('openrouter_enabled') and (config.get('openrouter_api_key') or os.getenv('OPENROUTER_API_KEY')) else '○ not configured'}")
+        print(f"  2. LM Studio    {'✓ configured' if config.get('endpoint') or os.getenv('LM_STUDIO_BASE_URL') else '○ default/unverified'}")
+        print(f"  3. Gateway      {'✓ configured' if config.get('gateway_enabled') and config.get('gateway_api_key') else '○ disabled'}")
+        print(f"\n  Primary:  {config.get('primary_provider', 'local')}")
+        print(f"  Fallback: {config.get('fallback_provider', 'none')}")
+        print("\nActions")
+        print("  4. Configure OpenRouter")
+        print("  5. Configure LM Studio")
+        print("  6. Select primary/fallback")
+        print("  7. Test configuration")
+        print("  8. Save and restart")
+        print("  Q. Cancel")
+        choice = input("\nSelect: ").strip().lower()
+
+        if choice == "1":
+            key = input(f"OpenRouter API key [{_mask_secret(config.get('openrouter_api_key') or os.getenv('OPENROUTER_API_KEY', ''))}]: ").strip()
+            if key:
+                config.set("openrouter_api_key", key)
+            config.set("openrouter_enabled", True)
+            model = input(f"Model [{config.get('openrouter_model')}]: ").strip()
+            if model:
+                config.set("openrouter_model", model)
+        elif choice == "2":
+            endpoint = input(f"LM Studio endpoint [{config.get('endpoint', 'http://localhost:1234/v1')}]: ").strip()
+            if endpoint:
+                config.set("endpoint", endpoint)
+            model = input(f"Local model [{config.get('model')}]: ").strip()
+            if model:
+                config.set("model", model)
+        elif choice == "3":
+            enabled = input("Enable gateway? [y/N]: ").strip().lower() == "y"
+            config.set("gateway_enabled", enabled)
+            if enabled:
+                key = input("Gateway API key: ").strip()
+                if key:
+                    config.set("gateway_api_key", key)
+                model = input(f"Gateway model [{config.get('gateway_model')}]: ").strip()
+                if model:
+                    config.set("gateway_model", model)
+        elif choice == "4":
+            key = input(f"OpenRouter API key [{_mask_secret(config.get('openrouter_api_key') or os.getenv('OPENROUTER_API_KEY', ''))}]: ").strip()
+            if key:
+                config.set("openrouter_api_key", key)
+            config.set("openrouter_enabled", True)
+            model = input(f"OpenRouter model [{config.get('openrouter_model')}]: ").strip()
+            if model:
+                config.set("openrouter_model", model)
+        elif choice == "5":
+            endpoint = input(f"LM Studio endpoint [{config.get('endpoint', 'http://localhost:1234/v1')}]: ").strip()
+            if endpoint:
+                config.set("endpoint", endpoint)
+            model = input(f"LM Studio model [{config.get('model')}]: ").strip()
+            if model:
+                config.set("model", model)
+        elif choice == "6":
+            print("Providers: local, openrouter, gateway")
+            primary = input(f"Primary [{config.get('primary_provider', 'local')}]: ").strip().lower()
+            fallback = input(f"Fallback [local/openrouter/gateway/none] [{config.get('fallback_provider', 'openrouter')}]: ").strip().lower()
+            if primary in {"local", "openrouter", "gateway"}:
+                config.set("primary_provider", primary)
+            if fallback in {"local", "openrouter", "gateway", "none"}:
+                config.set("fallback_provider", fallback)
+        elif choice == "7":
+            issues = config.validate()
+            if issues:
+                print("\nConfiguration issues:")
+                for issue in issues:
+                    print(f"  ✗ {issue}")
+            else:
+                print("\n✓ Configuration is valid.")
+                print(f"  Primary: {config.get('primary_provider')}")
+                print(f"  Fallback: {config.get('fallback_provider')}")
+                print(f"  OpenRouter key: {_mask_secret(config.get('openrouter_api_key') or os.getenv('OPENROUTER_API_KEY', ''))}")
+                print("  Note: provider connectivity is tested when ATLAS starts.")
+        elif choice == "8":
+            issues = config.validate()
+            if issues:
+                print("\nCannot save yet:")
+                for issue in issues:
+                    print(f"  ✗ {issue}")
+                continue
+            config.save()
+            print("\n✓ Configuration saved to config.json.")
+            return
+        elif choice == "q":
+            return
+        else:
+            print("Unknown option.")
+
+
 def print_startup_screen(brain: Brain, registry: ToolRegistry, config: ConfigManager) -> None:
     print("====================================")
     print("ATLAS v1")
@@ -116,13 +226,20 @@ def print_startup_screen(brain: Brain, registry: ToolRegistry, config: ConfigMan
     print("  Loaded")
     print("Voice:")
     print("  " + ("✓ Enabled" if VOICE_ENABLED else "Disabled"))
+    provider = config.get("primary_provider", "local")
+    fallback = config.get("fallback_provider", "none")
     print("AI Routing:")
-    print("  ✓ Smart local/cloud routing" if isinstance(brain.provider, SmartProvider) else "  Local/provider chain")
+    print(f"  ✓ Primary: {provider} | Fallback: {fallback}")
     print("====================================")
-    print(f"Using LM Studio endpoint: {brain.endpoint}")
 
 
 def main() -> None:
+    config = ConfigManager()
+
+    if "--configure" in sys.argv:
+        configure_cli(config)
+        return
+
     if "--ui" in sys.argv:
         from interface.gui import launch_ui
         from interface.run import build_backend
@@ -132,9 +249,8 @@ def main() -> None:
                   tool_registry=backend["tool_registry"])
         return
 
-    config = ConfigManager()
     logger = get_logger("ATLAS")
-    logger.info("ATLAS starting up (model=%s, endpoint=%s)", config.get("model"), config.get("endpoint", "http://localhost:1234/v1"))
+    logger.info("ATLAS starting up (model=%s, primary=%s)", config.get("model"), config.get("primary_provider"))
     event_bus = EventBus()
     memory = FactStore()
     registry = ToolRegistry()
@@ -182,7 +298,7 @@ def main() -> None:
 
     router._voice_controller = voice_controller
     print_startup_screen(brain, registry, config)
-    print("ATLAS is ready. Type /help for commands or 'exit' to quit.")
+    print("ATLAS is ready. Type /help, /configure, or 'exit' to quit.")
 
     while True:
         try:
@@ -200,6 +316,10 @@ def main() -> None:
                 goal_service.stop()
             briefing.stop()
             break
+        if prompt.lower() in {"/configure", "/config", "--configure"}:
+            configure_cli(config)
+            print("ATLAS: Configuration saved. Restarting with the new provider setup...")
+            os.execv(sys.executable, [sys.executable, *sys.argv])
         if prompt.startswith("/") or prompt.lower().startswith(("remember ", "forget ", "recall ", "search ")):
             print(router.route(prompt))
             continue
