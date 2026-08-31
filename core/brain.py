@@ -9,7 +9,8 @@ from typing import Any, Iterator
 from memory.facts import FactStore
 from openai import APIConnectionError, OpenAI
 
-from core.providers import LocalProvider, GatewayProvider, MultiProvider, ProviderConfig
+from core.openrouter import OpenRouterProvider
+from core.providers import LocalProvider, GatewayProvider, MultiProvider
 from utils.logger import get_logger
 
 
@@ -76,21 +77,63 @@ class Brain:
         self.provider = self._build_provider()
 
     def _build_provider(self):
-        if self.config is None or not self.config.get("gateway_enabled", False):
+        """Build the configured cloud/local provider chain.
+
+        OpenRouter is a first-class provider. If it is not configured with a
+        key, ATLAS continues to operate locally exactly as before.
+        """
+        if self.config is None:
             return None
+
+        providers: dict[str, Any] = {
+            "local": LocalProvider(
+                base_url=self.endpoint,
+                api_key=self.api_key,
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+        }
+
         gateway_key = self.config.get("gateway_api_key", "")
-        if not gateway_key:
-            return None
-        gateway = GatewayProvider(api_key=gateway_key, models=self.config.get_gateway_models(),
-                                  base_url=self.config.get("gateway_base_url", GatewayProvider.DEFAULT_BASE_URL),
-                                  temperature=self.temperature, max_tokens=self.max_tokens)
-        local = LocalProvider(base_url=self.endpoint, api_key=self.api_key, model=self.model,
-                              temperature=self.temperature, max_tokens=self.max_tokens)
-        if self.config.get("fallback_provider", "local") != "none":
-            if self.config.get("primary_provider", "local") == "gateway":
-                return MultiProvider(primary=gateway, fallback=local)
-            return MultiProvider(primary=local, fallback=gateway)
-        return gateway
+        if self.config.get("gateway_enabled", False) and gateway_key:
+            providers["gateway"] = GatewayProvider(
+                api_key=gateway_key,
+                models=self.config.get_gateway_models(),
+                base_url=self.config.get("gateway_base_url", GatewayProvider.DEFAULT_BASE_URL),
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+
+        openrouter_key = self.config.get("openrouter_api_key", "") or os.getenv("OPENROUTER_API_KEY", "")
+        if self.config.get("openrouter_enabled", False) and openrouter_key:
+            providers["openrouter"] = OpenRouterProvider(
+                api_key=openrouter_key,
+                model=self.config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL),
+                models=self.config.get_openrouter_models(),
+                base_url=self.config.get("openrouter_base_url", OpenRouterProvider.DEFAULT_BASE_URL),
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                site_url=self.config.get("openrouter_site_url", ""),
+                app_name=self.config.get("openrouter_app_name", "ATLAS"),
+            )
+
+        primary_name = self.config.get("primary_provider", "local")
+        fallback_name = self.config.get("fallback_provider", "none")
+        primary = providers.get(primary_name)
+        fallback = providers.get(fallback_name) if fallback_name != "none" else None
+
+        # Missing cloud credentials never break startup. Fall back to local.
+        if primary is None:
+            primary = providers["local"]
+        if fallback is primary:
+            fallback = None
+
+        if fallback is not None:
+            return MultiProvider(primary=primary, fallback=fallback)
+        if primary_name != "local" or self.config.get("openrouter_enabled", False) or self.config.get("gateway_enabled", False):
+            return primary
+        return None
 
     def add_message(self, role: MessageRole, content: str) -> None:
         self.history.append(ConversationMessage(role=role, content=content))
@@ -130,10 +173,8 @@ class Brain:
         if context:
             system_parts.append(f"Relevant memory context:\n{context}")
         system_text = "\n\n".join(system_parts)
-
         if self.use_system_role and system_text:
             messages.append({"role": "system", "content": system_text})
-
         for item in self.history:
             if item.role == MessageRole.SYSTEM:
                 continue
@@ -268,12 +309,6 @@ class Brain:
                 {"type": "text", "text": prompt},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}},
             ]
-            # Keep a conventional system + user multimodal payload for vision.
-            # This is accepted by OpenAI-compatible servers and preserves the
-            # public payload contract used by ATLAS's vision tests. Models that
-            # cannot use a system role can opt into the existing compatibility
-            # behavior by setting LM_STUDIO_SYSTEM_ROLE=false; in that mode the
-            # system instruction is also included in the user content.
             messages = [
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_content},
