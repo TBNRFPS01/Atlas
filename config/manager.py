@@ -42,7 +42,6 @@ class ConfigDefaults:
     autonomy_interval_seconds: float = 600.0
     autonomy_max_tasks_per_cycle: int = 2
     learning_enabled: bool = True
-    # Existing gateway provider configuration
     gateway_enabled: bool = False
     gateway_api_key: str = ""
     gateway_model: str = "VerseMonster-Opus"
@@ -50,7 +49,6 @@ class ConfigDefaults:
     gateway_base_url: str = "https://freemodelsforall.hopto.org/v1"
     gateway_model_discovery: bool = True
     gateway_model_cache_ttl: int = 300
-    # OpenRouter provider configuration
     openrouter_enabled: bool = False
     openrouter_api_key: str = ""
     openrouter_model: str = "qwen/qwen3-32b:free"
@@ -58,7 +56,6 @@ class ConfigDefaults:
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_site_url: str = ""
     openrouter_app_name: str = "ATLAS"
-    # Provider selection
     primary_provider: str = "local"
     fallback_provider: str = "openrouter"
     stt_enabled: bool = False
@@ -67,8 +64,6 @@ class ConfigDefaults:
     stt_device: str = "auto"
     stt_compute_type: str = "auto"
     tts_enabled: bool = False
-    tts_engine: str = "piper"
-    tts_voice: str = "en_US-lessac-medium"
     tts_rate: int = 180
     tts_volume: float = 1.0
     email_enabled: bool = False
@@ -103,68 +98,36 @@ class ConfigManager:
 
     def _apply_env_overrides(self) -> None:
         env_mappings = {
-            "LM_STUDIO_BASE_URL": "endpoint",
-            "LM_STUDIO_MODEL": "model",
-            "LM_STUDIO_TEMPERATURE": "temperature",
-            "LM_STUDIO_MAX_TOKENS": "max_tokens",
-            "LM_STUDIO_HISTORY_SIZE": "history_size",
-            "LM_STUDIO_STREAM": "stream",
-            "VOICE_ENABLED": "voice_enabled",
-            "MEMORY_ENABLED": "memory_enabled",
-            "DEBUG_MODE": "debug_mode",
-            "THEME": "theme",
-            "VOICE_RATE": "voice_rate",
-            "VOICE_VOLUME": "voice_volume",
-            "VOICE_LANGUAGE": "voice_language",
-            "WHISPER_MODEL": "whisper_model",
-            "TTS_ENGINE": "tts_engine",
-            "TTS_VOICE": "tts_voice",
-            "SAMPLE_RATE": "sample_rate",
-            "RECORD_SECONDS": "record_seconds",
-            "PUSH_TO_TALK_KEY": "push_to_talk_key",
-            "VISION_ENABLED": "vision_enabled",
-            "OCR_ENABLED": "ocr_enabled",
-            "PLANNER_ENABLED": "planner_enabled",
-            "EVENT_LOG_LEVEL": "event_log_level",
-            "ATLAS_AUTONOMY_ENABLED": "autonomy_enabled",
+            "LM_STUDIO_BASE_URL": "endpoint", "LM_STUDIO_MODEL": "model",
+            "LM_STUDIO_TEMPERATURE": "temperature", "LM_STUDIO_MAX_TOKENS": "max_tokens",
+            "LM_STUDIO_HISTORY_SIZE": "history_size", "LM_STUDIO_STREAM": "stream",
+            "VOICE_ENABLED": "voice_enabled", "MEMORY_ENABLED": "memory_enabled",
+            "DEBUG_MODE": "debug_mode", "THEME": "theme", "VOICE_RATE": "voice_rate",
+            "VOICE_VOLUME": "voice_volume", "VOICE_LANGUAGE": "voice_language",
+            "WHISPER_MODEL": "whisper_model", "TTS_ENGINE": "tts_engine", "TTS_VOICE": "tts_voice",
+            "SAMPLE_RATE": "sample_rate", "RECORD_SECONDS": "record_seconds",
+            "PUSH_TO_TALK_KEY": "push_to_talk_key", "VISION_ENABLED": "vision_enabled",
+            "OCR_ENABLED": "ocr_enabled", "PLANNER_ENABLED": "planner_enabled",
+            "EVENT_LOG_LEVEL": "event_log_level", "ATLAS_AUTONOMY_ENABLED": "autonomy_enabled",
             "ATLAS_AUTONOMY_INTERVAL": "autonomy_interval_seconds",
             "ATLAS_AUTONOMY_MAX_TASKS": "autonomy_max_tasks_per_cycle",
-            "ATLAS_LEARNING_ENABLED": "learning_enabled",
-            "ATLAS_GATEWAY_API_KEY": "gateway_api_key",
-            "ATLAS_GATEWAY_MODEL": "gateway_model",
-            "ATLAS_GATEWAY_MODELS": "gateway_models",
-            "ATLAS_GATEWAY_BASE_URL": "gateway_base_url",
-            "ATLAS_GATEWAY_ENABLED": "gateway_enabled",
+            "ATLAS_LEARNING_ENABLED": "learning_enabled", "ATLAS_GATEWAY_API_KEY": "gateway_api_key",
+            "ATLAS_GATEWAY_MODEL": "gateway_model", "ATLAS_GATEWAY_MODELS": "gateway_models",
+            "ATLAS_GATEWAY_BASE_URL": "gateway_base_url", "ATLAS_GATEWAY_ENABLED": "gateway_enabled",
             "ATLAS_GATEWAY_MODEL_DISCOVERY": "gateway_model_discovery",
             "ATLAS_GATEWAY_MODEL_CACHE_TTL": "gateway_model_cache_ttl",
-            "ATLAS_OPENROUTER_API_KEY": "openrouter_api_key",
-            "OPENROUTER_API_KEY": "openrouter_api_key",
-            "ATLAS_OPENROUTER_MODEL": "openrouter_model",
-            "ATLAS_OPENROUTER_MODELS": "openrouter_models",
-            "ATLAS_OPENROUTER_BASE_URL": "openrouter_base_url",
-            "ATLAS_OPENROUTER_SITE_URL": "openrouter_site_url",
-            "ATLAS_OPENROUTER_APP_NAME": "openrouter_app_name",
-            "ATLAS_OPENROUTER_ENABLED": "openrouter_enabled",
-            "ATLAS_PRIMARY_PROVIDER": "primary_provider",
-            "ATLAS_FALLBACK_PROVIDER": "fallback_provider",
-            "ATLAS_STT_ENABLED": "stt_enabled",
-            "ATLAS_STT_MODEL": "stt_model",
-            "ATLAS_STT_LANGUAGE": "stt_language",
-            "ATLAS_STT_DEVICE": "stt_device",
-            "ATLAS_STT_COMPUTE_TYPE": "stt_compute_type",
-            "ATLAS_TTS_ENABLED": "tts_enabled",
-            "ATLAS_TTS_ENGINE": "tts_engine",
-            "ATLAS_TTS_VOICE": "tts_voice",
-            "ATLAS_TTS_RATE": "tts_rate",
-            "ATLAS_TTS_VOLUME": "tts_volume",
-            "ATLAS_EMAIL_ENABLED": "email_enabled",
-            "ATLAS_EMAIL_PROVIDER": "email_provider",
-            "ATLAS_EMAIL_SMTP_HOST": "email_smtp_host",
-            "ATLAS_EMAIL_SMTP_PORT": "email_smtp_port",
-            "ATLAS_EMAIL_USERNAME": "email_username",
-            "ATLAS_EMAIL_PASSWORD": "email_password",
-            "ATLAS_EMAIL_FROM": "email_from",
-            "ATLAS_EMAIL_USE_TLS": "email_use_tls",
+            "ATLAS_OPENROUTER_API_KEY": "openrouter_api_key", "OPENROUTER_API_KEY": "openrouter_api_key",
+            "ATLAS_OPENROUTER_MODEL": "openrouter_model", "ATLAS_OPENROUTER_MODELS": "openrouter_models",
+            "ATLAS_OPENROUTER_BASE_URL": "openrouter_base_url", "ATLAS_OPENROUTER_SITE_URL": "openrouter_site_url",
+            "ATLAS_OPENROUTER_APP_NAME": "openrouter_app_name", "ATLAS_OPENROUTER_ENABLED": "openrouter_enabled",
+            "ATLAS_PRIMARY_PROVIDER": "primary_provider", "ATLAS_FALLBACK_PROVIDER": "fallback_provider",
+            "ATLAS_STT_ENABLED": "stt_enabled", "ATLAS_STT_MODEL": "stt_model", "ATLAS_STT_LANGUAGE": "stt_language",
+            "ATLAS_STT_DEVICE": "stt_device", "ATLAS_STT_COMPUTE_TYPE": "stt_compute_type",
+            "ATLAS_TTS_ENABLED": "tts_enabled", "ATLAS_TTS_ENGINE": "tts_engine", "ATLAS_TTS_VOICE": "tts_voice",
+            "ATLAS_TTS_RATE": "tts_rate", "ATLAS_TTS_VOLUME": "tts_volume", "ATLAS_EMAIL_ENABLED": "email_enabled",
+            "ATLAS_EMAIL_PROVIDER": "email_provider", "ATLAS_EMAIL_SMTP_HOST": "email_smtp_host",
+            "ATLAS_EMAIL_SMTP_PORT": "email_smtp_port", "ATLAS_EMAIL_USERNAME": "email_username",
+            "ATLAS_EMAIL_PASSWORD": "email_password", "ATLAS_EMAIL_FROM": "email_from", "ATLAS_EMAIL_USE_TLS": "email_use_tls",
         }
         for env_key, config_key in env_mappings.items():
             value = os.getenv(env_key)
@@ -172,9 +135,8 @@ class ConfigManager:
                 self._data[config_key] = self._coerce_type(config_key, value)
 
     def _coerce_type(self, key: str, value: str) -> Any:
-        defaults = self._defaults
-        if hasattr(defaults, key):
-            default_val = getattr(defaults, key)
+        if hasattr(self._defaults, key):
+            default_val = getattr(self._defaults, key)
             if isinstance(default_val, bool):
                 return value.lower() in ("true", "1", "yes", "on")
             if isinstance(default_val, int):
@@ -190,14 +152,22 @@ class ConfigManager:
             return getattr(self._defaults, key)
         return default
 
+    def set(self, key: str, value: Any) -> None:
+        self._data[key] = value
+
+    def save(self) -> None:
+        """Persist interactive configuration to config.json."""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.config_path, "w", encoding="utf-8") as handle:
+            json.dump(self._data, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+
     def get_gateway_models(self) -> list[str]:
         models_str = self.get("gateway_models", "")
         if models_str:
             return [m.strip() for m in models_str.split(",") if m.strip()]
         single_model = self.get("gateway_model", "")
-        if single_model:
-            return [single_model]
-        return ["VerseMonster-Opus"]
+        return [single_model] if single_model else ["VerseMonster-Opus"]
 
     def get_openrouter_models(self) -> list[str]:
         models_str = self.get("openrouter_models", "")
@@ -205,9 +175,6 @@ class ConfigManager:
             return [m.strip() for m in models_str.split(",") if m.strip()]
         single_model = self.get("openrouter_model", "")
         return [single_model] if single_model else ["qwen/qwen3-32b:free"]
-
-    def set(self, key: str, value: Any) -> None:
-        self._data[key] = value
 
     def reload(self) -> None:
         self._load_json()
@@ -226,38 +193,16 @@ class ConfigManager:
         volume = self.get("voice_volume")
         if volume is not None and not (0 <= volume <= 1):
             issues.append("voice_volume must be between 0 and 1")
-        if self.get("gateway_enabled"):
-            if not self.get("gateway_api_key"):
-                issues.append("gateway_api_key is required when gateway_enabled is true")
-            if not self.get_gateway_models():
-                issues.append("gateway_models or gateway_model is required when gateway_enabled is true")
-        if self.get("openrouter_enabled"):
-            if not self.get("openrouter_api_key"):
-                issues.append("openrouter_api_key is required when openrouter_enabled is true")
-            if not self.get_openrouter_models():
-                issues.append("openrouter_models or openrouter_model is required when openrouter_enabled is true")
-        primary = self.get("primary_provider")
-        if primary not in ("local", "gateway", "openrouter"):
+        if self.get("gateway_enabled") and not self.get("gateway_api_key"):
+            issues.append("gateway_api_key is required when gateway_enabled is true")
+        if self.get("openrouter_enabled") and not (self.get("openrouter_api_key") or os.getenv("OPENROUTER_API_KEY")):
+            issues.append("openrouter_api_key or OPENROUTER_API_KEY is required when openrouter_enabled is true")
+        if self.get("openrouter_enabled") and not self.get_openrouter_models():
+            issues.append("openrouter_models or openrouter_model is required when openrouter_enabled is true")
+        if self.get("primary_provider") not in ("local", "gateway", "openrouter"):
             issues.append("primary_provider must be 'local', 'gateway', or 'openrouter'")
-        fallback = self.get("fallback_provider")
-        if fallback not in ("local", "gateway", "openrouter", "none"):
+        if self.get("fallback_provider") not in ("local", "gateway", "openrouter", "none"):
             issues.append("fallback_provider must be 'local', 'gateway', 'openrouter', or 'none'")
-        if self.get("stt_enabled") and not self.get("stt_model"):
-            issues.append("stt_model is required when stt_enabled is true")
-        if self.get("tts_enabled"):
-            if not self.get("tts_engine"):
-                issues.append("tts_engine is required when tts_enabled is true")
-            if not self.get("tts_voice"):
-                issues.append("tts_voice is required when tts_enabled is true")
-        if self.get("email_enabled"):
-            if not self.get("email_smtp_host"):
-                issues.append("email_smtp_host is required when email_enabled is true")
-            if not self.get("email_username"):
-                issues.append("email_username is required when email_enabled is true")
-            if not self.get("email_password"):
-                issues.append("email_password is required when email_enabled is true")
-            if not self.get("email_from"):
-                issues.append("email_from is required when email_enabled is true")
         return issues
 
 
