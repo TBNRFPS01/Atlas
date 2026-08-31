@@ -139,8 +139,6 @@ class Brain:
         self.system_prompt = prompt
 
     def _resolve_model_name(self) -> str:
-        if self.config is not None and self.config.get("primary_provider") == "openrouter" and self.config.get("openrouter_enabled", False):
-            return self.config.get("openrouter_model", OpenRouterProvider.DEFAULT_MODEL)
         if self.model != self.DEFAULT_MODEL:
             return self.model
         try:
@@ -233,7 +231,7 @@ class Brain:
         messages = self._history_messages(self._memory_context(prompt))
         def call():
             if self.provider is not None:
-                return self.provider.chat(messages=messages, model=self._resolve_model_name(), temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
+                return self.provider.chat(messages=messages, model=None, temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
             return self.client.chat.completions.create(model=self._resolve_model_name(), messages=messages, temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
         answer = self._call_provider("LLM", call)
         if not answer.startswith("LM Studio") and not answer.startswith("LLM request"):
@@ -248,7 +246,7 @@ class Brain:
         collected: list[str] = []
         def stream_call():
             if self.provider is not None:
-                return self.provider.chat_stream(messages=messages, model=self._resolve_model_name(), temperature=self.temperature, max_tokens=self.max_tokens)
+                return self.provider.chat_stream(messages=messages, model=None, temperature=self.temperature, max_tokens=self.max_tokens)
             return self.client.chat.completions.create(model=self._resolve_model_name(), messages=messages, temperature=self.temperature, max_tokens=self.max_tokens, stream=True)
         def stream_wrapper():
             for chunk in stream_call():
@@ -271,7 +269,7 @@ class Brain:
             elif payload and payload[0].get("role") == "user":
                 payload[0] = {**payload[0], "content": f"{self.system_prompt}\n\nUser request:\n{payload[0].get('content', '')}"}
             if self.provider is not None:
-                return self.provider.chat(messages=payload, model=self._resolve_model_name(), temperature=0.7, max_tokens=self.max_tokens, stream=False)
+                return self.provider.chat(messages=payload, model=None, temperature=0.7, max_tokens=self.max_tokens, stream=False)
             return self.client.chat.completions.create(model=self._resolve_model_name(), messages=payload, temperature=0.7, max_tokens=self.max_tokens, stream=False)
         return self._call_provider("LLM chat", call)
 
@@ -283,7 +281,7 @@ class Brain:
             elif payload and payload[0].get("role") == "user":
                 payload[0] = {**payload[0], "content": f"{self.system_prompt}\n\nUser request:\n{payload[0].get('content', '')}"}
             if self.provider is not None:
-                return self.provider.chat_stream(messages=payload, model=self._resolve_model_name(), temperature=0.7, max_tokens=self.max_tokens)
+                return self.provider.chat_stream(messages=payload, model=None, temperature=0.7, max_tokens=self.max_tokens)
             return self.client.chat.completions.create(model=self._resolve_model_name(), messages=payload, temperature=0.7, max_tokens=self.max_tokens, stream=True)
         def stream_wrapper():
             for chunk in stream_call():
@@ -307,6 +305,6 @@ class Brain:
             if not self.use_system_role:
                 user_content.insert(0, {"type": "text", "text": self.system_prompt})
             if self.provider is not None:
-                return self.provider.chat(messages=messages, model=self._resolve_model_name(), temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
+                return self.provider.chat(messages=messages, model=None, temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
             return self.client.chat.completions.create(model=self._resolve_model_name(), messages=messages, temperature=self.temperature, max_tokens=self.max_tokens, stream=False)
         return self._call_provider("Vision", call)
