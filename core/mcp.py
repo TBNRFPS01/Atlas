@@ -1,8 +1,7 @@
 """Minimal MCP-style tool adapter for ATLAS.
 
-ATLAS can consume any MCP-like server through a tiny transport-neutral
-interface. A real MCP transport can be attached later without changing the
-agent's tool registry.
+MCP calls are treated as external capabilities and require an explicit
+authorization context before a handler is invoked.
 """
 from __future__ import annotations
 
@@ -15,6 +14,7 @@ class MCPTool:
     name: str
     description: str = ""
     input_schema: dict[str, Any] = field(default_factory=dict)
+    risk: str = "elevated"
 
 
 class MCPTransport(Protocol):
@@ -23,24 +23,48 @@ class MCPTransport(Protocol):
 
 
 class MCPClient:
-    """Transport-neutral MCP client facade."""
+    """Transport-neutral MCP client facade with permission gating."""
 
-    def __init__(self, transport: MCPTransport) -> None:
+    def __init__(self, transport: MCPTransport, permission_manager: Any | None = None) -> None:
         self.transport = transport
+        self._permissions = permission_manager
         self._tools: dict[str, MCPTool] = {}
         self.refresh()
 
     def refresh(self) -> list[MCPTool]:
         tools = self.transport.list_tools()
+        for tool in tools:
+            if tool.risk not in {"safe", "elevated", "destructive"}:
+                raise ValueError(f"Invalid MCP risk level for '{tool.name}': {tool.risk}")
         self._tools = {tool.name: tool for tool in tools}
         return tools
 
     def tools(self) -> list[MCPTool]:
         return list(self._tools.values())
 
-    def call(self, name: str, **arguments: Any) -> Any:
-        if name not in self._tools:
+    def call(self, name: str, *, confirmed: bool = False, **arguments: Any) -> Any:
+        tool = self._tools.get(name)
+        if tool is None:
             raise KeyError(f"Unknown MCP tool: {name}")
+
+        action = str(arguments.get("action", "call"))
+        if self._permissions is None:
+            if not confirmed:
+                raise PermissionError(
+                    f"MCP tool '{name}' requires an authorization context or explicit confirmation"
+                )
+        else:
+            decision = self._permissions.decide(
+                f"mcp.{name}",
+                action,
+                permission_level=tool.risk,
+                confirmed=confirmed,
+            )
+            if decision == "deny":
+                raise PermissionError(f"Permission denied for MCP tool '{name}'")
+            if decision == "ask":
+                raise PermissionError(f"Confirmation required for MCP tool '{name}'")
+
         return self.transport.call_tool(name, arguments)
 
 
