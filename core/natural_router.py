@@ -32,6 +32,30 @@ class NaturalCapabilityRouter:
         tool = cls._tool(router, tool_name)
         if tool is None:
             return None
+
+        action = str(kwargs.get("action", "execute"))
+        metadata = getattr(tool, "metadata", None)
+        permission_level = getattr(metadata, "permission_level", "basic")
+        confirmation_required = bool(getattr(metadata, "confirmation_required", False))
+        path = str(kwargs.get("path") or kwargs.get("application_path") or kwargs.get("title") or "")
+
+        # Natural routing is an execution entry point too. Never let it call a
+        # tool directly without the same hard-safety and permission checks used
+        # by the main router.
+        authorize = getattr(router, "_authorize", None)
+        if authorize is not None:
+            blocked = authorize(
+                tool_name,
+                action,
+                permission_level=permission_level,
+                confirmation_required=confirmation_required,
+                prompt=kwargs.get("_prompt", ""),
+                path=path,
+            )
+            if blocked:
+                return blocked
+
+        kwargs.pop("_prompt", None)
         try:
             return tool.execute(**kwargs)
         except Exception as exc:
@@ -109,12 +133,7 @@ class NaturalCapabilityRouter:
 
     @staticmethod
     def _match(prompt: str) -> str | None:
-        """Route only unambiguous capabilities before the normal LLM path.
-
-        In particular, ``Where is Pakistan?`` is a knowledge question, not
-        an application lookup. Application discovery therefore uses explicit
-        action verbs such as ``find`` or ``locate`` instead of ``where is``.
-        """
+        """Route only unambiguous capabilities before the normal LLM path."""
         text = prompt.lower().strip()
 
         for prefix in (
@@ -165,11 +184,11 @@ class NaturalCapabilityRouter:
         if parts[0] == "web":
             if parts[1] == "missing":
                 return "Usage: search the web for <query>"
-            return self._execute(router, "web", action="search", query=parts[2])
+            return self._execute(router, "web", action="search", query=parts[2], _prompt=prompt)
         if parts[0] == "system" and parts[1] == "info":
-            return self._execute(router, "system", action="info")
+            return self._execute(router, "system", action="info", _prompt=prompt)
         if parts[0] == "context":
-            return self._execute(router, "context", action=parts[1])
+            return self._execute(router, "context", action=parts[1], _prompt=prompt)
         if parts[0] == "application":
             return self._application_action(router, parts[1], parts[2])
         return None
