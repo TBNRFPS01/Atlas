@@ -1,7 +1,7 @@
 """Dynamic tool selection for ATLAS.
 
-Keeps prompts small by exposing only tools relevant to the current task.
-Inspired by dynamic tool loading patterns observed in Hearth/OpenAgent/Web Agent.
+Keeps prompts small by exposing only tools relevant to the current task while
+ensuring runtime risk metadata is enforced before a handler can execute.
 """
 from __future__ import annotations
 
@@ -21,10 +21,13 @@ class ToolSpec:
 
 
 class ToolRegistry:
-    def __init__(self) -> None:
+    def __init__(self, permission_manager: Any | None = None) -> None:
         self._tools: dict[str, ToolSpec] = {}
+        self._permissions = permission_manager
 
     def register(self, spec: ToolSpec) -> None:
+        if spec.risk not in {"safe", "elevated", "dangerous"}:
+            raise ValueError(f"Invalid risk level for '{spec.name}': {spec.risk}")
         self._tools[spec.name] = spec
 
     def unregister(self, name: str) -> None:
@@ -37,7 +40,6 @@ class ToolRegistry:
         return list(self._tools.values())
 
     def select(self, prompt: str, limit: int = 12) -> list[ToolSpec]:
-        """Return the most relevant tools, while always keeping core tools."""
         text = prompt.lower()
         scored: list[tuple[int, ToolSpec]] = []
         for spec in self._tools.values():
@@ -53,10 +55,36 @@ class ToolRegistry:
     def schemas_for(self, prompt: str, limit: int = 12) -> list[dict[str, Any]]:
         return [spec.schema for spec in self.select(prompt, limit=limit)]
 
-    def execute(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
+    def execute(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        confirmed: bool = False,
+    ) -> Any:
         spec = self.get(name)
         if spec is None:
             raise KeyError(f"Unknown tool: {name}")
         if spec.handler is None:
             raise RuntimeError(f"Tool '{name}' has no handler")
+
+        action = str((arguments or {}).get("action", "execute"))
+        level = {"safe": "basic", "elevated": "elevated", "dangerous": "destructive"}[spec.risk]
+        if self._permissions is None:
+            if spec.risk != "safe":
+                raise PermissionError(
+                    f"Dynamic tool '{name}' is {spec.risk} and has no authorization context"
+                )
+        else:
+            decision = self._permissions.decide(
+                name,
+                action,
+                permission_level=level,
+                confirmed=confirmed,
+            )
+            if decision == "deny":
+                raise PermissionError(f"Permission denied for dynamic tool '{name}'")
+            if decision == "ask":
+                raise PermissionError(f"Confirmation required for dynamic tool '{name}'")
+
         return spec.handler(**(arguments or {}))
