@@ -39,11 +39,12 @@ class NaturalCapabilityRouter:
         confirmation_required = bool(getattr(metadata, "confirmation_required", False))
         path = str(kwargs.get("path") or kwargs.get("application_path") or kwargs.get("title") or "")
 
-        # Natural routing is an execution entry point too. Never let it call a
-        # tool directly without the same hard-safety and permission checks used
-        # by the main router.
         authorize = getattr(router, "_authorize", None)
-        if authorize is not None:
+        execute_action = getattr(router, "execute_action", None)
+        # Older Router implementations retain their legacy gate. The current
+        # Router owns policy inside execute_action so it can emit a full record
+        # for denials as well as successful actions.
+        if execute_action is None and authorize is not None:
             blocked = authorize(
                 tool_name,
                 action,
@@ -55,7 +56,11 @@ class NaturalCapabilityRouter:
             if blocked:
                 return blocked
 
-        kwargs.pop("_prompt", None)
+        intent = str(kwargs.pop("_prompt", "") or f"{tool_name}.{action}")
+        if execute_action is not None:
+            return execute_action(intent=intent, tool_name=tool_name, action=action,
+                fn=lambda: tool.execute(**kwargs), prompt=intent, path=path,
+                permission_level=permission_level, confirmation_required=confirmation_required)
         try:
             return tool.execute(**kwargs)
         except Exception as exc:
@@ -64,6 +69,8 @@ class NaturalCapabilityRouter:
     @staticmethod
     def _clean_application_candidate(candidate: str) -> str:
         value = candidate.strip().strip(" .!?\"'")
+        # Strip only semantic suffixes, not words that may legitimately be
+        # part of an application name such as "Windows Terminal".
         value = re.sub(r"\s+(?:app|application|program)\b", "", value, flags=re.I).strip()
         value = re.sub(
             r"\s+(?:on|in|from)\s+(?:my|the)\s+(?:laptop|computer|pc|desktop)\b.*$",
@@ -101,11 +108,14 @@ class NaturalCapabilityRouter:
         if not result:
             return None
         for line in result.splitlines():
-            match = re.search(r"(?:Found[^:]*:\s*)([A-Za-z]:[\\/].+)$", line)
-            if match:
-                return match.group(1).strip().strip('"')
-            if re.fullmatch(r"[A-Za-z]:[\\/].+", line.strip()):
-                return line.strip()
+            # Extract the last Windows absolute path on the line.
+            # The label emitted by SystemTool ("Found in C:\...: C:\...") also
+            # contains drive-letter colons, so we can't rely on splitting at the
+            # first colon.  Instead find every occurrence of a drive-letter path
+            # and take the last one, which is always the actual executable path.
+            matches = re.findall(r"[A-Za-z]:[\\/][^\s\"']+", line)
+            if matches:
+                return matches[-1].strip().strip('"')
         return None
 
     def _application_action(self, router: Any, action: str, candidate: str) -> str | None:
@@ -167,15 +177,36 @@ class NaturalCapabilityRouter:
         )):
             return "context:window"
 
-        app_match = re.match(
-            r"^(find|locate|open|launch|start|run)\s+(?:the\s+)?(.+?)\s*[.!?]*$",
-            text,
+        # Match application launch/find requests, but exclude common non-app
+        # verb phrases that happen to start with the same trigger words.
+        # The negative lookahead blocks things like "open a new tab",
+        # "run the test suite", "start a timer", "launch into details", etc.
+        _NON_APP_PATTERN = re.compile(
+            r"^(?:open|launch|start|run|find|locate|where is)\s+"
+            r"(?:a\s+|an\s+|the\s+)?"
+            r"(?:new\s+|my\s+)?"
+            r"(?:tab|window|file|folder|terminal|command|cmd|shell|browser|"
+            r"test|tests|suite|timer|task|tasks|meeting|note|notes|search|"
+            r"url|link|connection|session|server|service|process|script|"
+            r"dialog|menu|settings|preferences|prompt|instance)\b",
+            re.IGNORECASE,
         )
+        app_match = re.match(r"^(find|locate|where is|open|launch|start|run)\s+(?:the\s+)?(.+?)\s*[.!?]*$", text)
         if app_match:
-            verb, name = app_match.groups()
-            name = NaturalCapabilityRouter._clean_application_candidate(name)
-            action = "find" if verb in {"find", "locate"} else "launch"
-            if name:
+            verb, raw_name = app_match.groups()
+            # "Where is <place/person/topic>?" is normally a knowledge
+            # question, not an application lookup. Keep that route opt-in by
+            # requiring an explicit application qualifier for this otherwise
+            # ambiguous phrasing; "find" and "locate" remain concise app
+            # discovery commands.
+            if verb == "where is" and not re.search(
+                r"\b(?:app|application|program)\b", raw_name, re.IGNORECASE
+            ):
+                return None
+            name = NaturalCapabilityRouter._clean_application_candidate(raw_name)
+            # Reject if the full original text looks like a non-app command
+            if name and not _NON_APP_PATTERN.match(text):
+                action = "find" if verb in {"find", "locate", "where is"} else "launch"
                 return f"application:{action}:{name}"
         return None
 

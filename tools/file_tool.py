@@ -36,7 +36,7 @@ class FileTool(Tool):
             ToolParameter(
                 name="pattern",
                 type="string",
-                description="Search pattern (glob or regex) for search action",
+                description="Glob pattern for search action (e.g. *.py, **/*.txt). Glob syntax only — regex is not supported.",
                 required=False,
             ),
             ToolParameter(
@@ -65,7 +65,14 @@ class FileTool(Tool):
             if p.is_dir():
                 return f"Path is a directory: {path}"
             try:
-                return p.read_text(encoding="utf-8")
+                # Cap reads at 1 MB to protect the LLM context window and memory.
+                max_bytes = 1024 * 1024
+                size = p.stat().st_size
+                with open(p, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read(max_bytes)
+                truncated = size > max_bytes
+                suffix = f"\n\n[...truncated — file is {size:,} bytes, showing first {max_bytes:,}]" if truncated else ""
+                return text + suffix
             except Exception as exc:
                 return f"Error reading file: {exc}"
 

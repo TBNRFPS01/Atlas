@@ -9,20 +9,44 @@ from typing import Any
 
 
 class Plugin:
-    """Base class for ATLAS plugins."""
+    """Base class for ATLAS plugins.
+
+    Subclass this and place your file in the ``plugins/`` directory.  ATLAS
+    will discover it automatically on startup.
+
+    Minimal implementation::
+
+        class MyPlugin(Plugin):
+            name = "my_plugin"
+            commands = ["my command"]
+
+            def handle(self, prompt: str, router: Any) -> str | None:
+                if "my command" in prompt.lower():
+                    return "Plugin handled it!"
+                return None  # pass through to the brain
+    """
 
     name: str = "plugin"
     version: str = "1.0.0"
+    # Natural-language phrases that should route to this plugin's handle().
     commands: list[str] = []
+    # Tool names this plugin provides (informational only).
     tools: list[str] = []
 
     def startup(self) -> None:
-        """Called when the plugin is loaded."""
-        pass
+        """Called once when the plugin is loaded."""
 
     def shutdown(self) -> None:
-        """Called when the plugin is unloaded."""
-        pass
+        """Called once when the plugin is unloaded."""
+
+    def handle(self, prompt: str, router: Any) -> str | None:  # noqa: ARG002
+        """Process a user prompt.
+
+        Return a response string if this plugin handled the request, or
+        ``None`` to pass the prompt on to the next handler.  The default
+        implementation returns ``None`` for every input.
+        """
+        return None
 
 
 class PluginManager:
@@ -96,3 +120,24 @@ class PluginManager:
         """Reload all plugins from disk."""
         self.stop_all()
         return self.discover()
+
+    def dispatch(self, prompt: str, router: Any) -> str | None:
+        """Try each loaded plugin in registration order.
+
+        Returns the first non-``None`` response, or ``None`` if no plugin
+        handled the prompt.
+        """
+        lowered = prompt.lower()
+        with self._lock:
+            plugins = list(self._plugins.values())
+        for plugin in plugins:
+            # Fast-path: skip plugins whose command list doesn't overlap at all
+            if plugin.commands and not any(cmd in lowered for cmd in plugin.commands):
+                continue
+            try:
+                result = plugin.handle(prompt, router)
+            except Exception:
+                result = None
+            if result is not None:
+                return result
+        return None

@@ -36,13 +36,31 @@ class Brain:
         "you cannot verify."
     )
     DEFAULT_HISTORY_LIMIT = 60
+    # Each entry is (compiled_regex, memory_key).
+    # Patterns are intentionally anchored or terminated so greedy matching
+    # cannot swallow trailing sentence content.
     MEMORY_PATTERNS = (
-        (re.compile(r"\bmy name is\s+([A-Za-z][A-Za-z' -]+)", re.IGNORECASE), "name"),
-        (re.compile(r"\bi use\s+([A-Za-z0-9_. -]+)", re.IGNORECASE), "uses"),
-        (re.compile(r"\bmy favourite game is\s+([A-Za-z0-9_. -]+)", re.IGNORECASE), "game"),
-        (re.compile(r"\bmy favorite game is\s+([A-Za-z0-9_. -]+)", re.IGNORECASE), "game"),
-        (re.compile(r"\bmy school is\s+([A-Za-z0-9_. -]+)", re.IGNORECASE), "school"),
+        # "my name is Alice" — stop at punctuation / conjunction
+        (re.compile(r"\bmy name is\s+([A-Za-z][A-Za-z' -]{0,40}?)(?:\s*[,.]|\s+and\b|\s+but\b|$)", re.IGNORECASE), "name"),
+        # "I use VS Code" — stop at punctuation / conjunction
+        (re.compile(r"\bi(?:'m|\s+am)?\s+using\s+([A-Za-z0-9][A-Za-z0-9_. -]{0,60}?)(?:\s*[,.]|\s+(?:and|but|for|to)\b|$)", re.IGNORECASE), "uses"),
+        (re.compile(r"\bi use\s+([A-Za-z0-9][A-Za-z0-9_. -]{0,60}?)(?:\s*[,.]|\s+(?:and|but|for|to)\b|$)", re.IGNORECASE), "uses"),
+        # favourite / favorite game
+        (re.compile(r"\bmy favou?rite game is\s+([A-Za-z0-9][A-Za-z0-9_. :-]{0,60}?)(?:\s*[,.]|$)", re.IGNORECASE), "game"),
+        # favourite / favorite app
+        (re.compile(r"\bmy favou?rite (?:app|application|tool|editor|ide) is\s+([A-Za-z0-9][A-Za-z0-9_. -]{0,60}?)(?:\s*[,.]|$)", re.IGNORECASE), "fav_app"),
+        # school / university / college
+        (re.compile(r"\bmy (?:school|university|college) is\s+([A-Za-z0-9][A-Za-z0-9_. -]{0,80}?)(?:\s*[,.]|$)", re.IGNORECASE), "school"),
+        # RAM
         (re.compile(r"\bi have\s+([0-9]+\s*(?:gb|tb|mb)\s+ram)", re.IGNORECASE), "ram"),
+        # OS
+        (re.compile(r"\bi(?:'m|\s+am|\s+use)?\s+(?:running|using|on)\s+(windows\s*\d*|macos|mac\s*os|linux|ubuntu|fedora)(?:\s+\d[\d.]*)?", re.IGNORECASE), "os"),
+        # programming language preference
+        (re.compile(r"\bmy (?:main\s+)?(?:programming\s+)?language is\s+([A-Za-z0-9#+. -]{1,40}?)(?:\s*[,.]|$)", re.IGNORECASE), "language"),
+        # job / role
+        (re.compile(r"\bi(?:'m|\s+am)\s+a(?:n)?\s+([A-Za-z][A-Za-z0-9 ]{2,60}?)(?:\s+(?:at|for|working|developer|engineer|designer|student)\b|\s*[,.]|$)", re.IGNORECASE), "role"),
+        # location
+        (re.compile(r"\bi(?:'m|\s+am|\s+live)?\s+(?:from|in|based in)\s+([A-Za-z][A-Za-z ,]{2,60}?)(?:\s*[,.]|$)", re.IGNORECASE), "location"),
     )
 
     def __init__(self, model: str | None = None, endpoint: str | None = None,
@@ -197,13 +215,15 @@ class Brain:
         for pattern, key in self.MEMORY_PATTERNS:
             match = pattern.search(normalized)
             if match:
-                value = match.group(1).strip()
+                value = match.group(1).strip().rstrip(".,;")
+                # Ignore implausibly short or long captures
+                if not value or len(value) < 2 or len(value) > 120:
+                    continue
                 existing = self.memory_store.recall(key)
                 if existing is None:
                     self.memory_store.remember(key, value, category="fact")
                 elif existing != value:
                     self.memory_store.update(key, value, category="fact")
-                return
 
     def _call_provider(self, operation: str, call) -> str:
         try:

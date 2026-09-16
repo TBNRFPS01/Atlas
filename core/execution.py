@@ -20,6 +20,8 @@ class ExecutionResult:
     verified: bool = False
     error: str = ""
     dry_run: bool = False
+    observation: Any = None
+    verification: str = "unavailable"
 
 
 class ExecutionPipeline:
@@ -55,19 +57,27 @@ class ExecutionPipeline:
         fn: Callable[[], Any],
         *,
         verify: Callable[[Any], bool] | None = None,
+        observe: Callable[[Any], Any] | None = None,
         signature: str | None = None,
         description: str | None = None,
+        intent: str = "",
+        permission_decision: str = "allow",
+        safety_decision: str = "allow",
     ) -> ExecutionResult:
         signature = signature or f"{tool}:{action}:{description or ''}".strip(":")
         if self.is_looping(signature):
             message = f"Execution stopped: repeated action detected ({tool}.{action})."
-            self._record(tool, action, signature, False, message, 0)
+            self._record(tool, action, signature, False, message, 0, intent=intent,
+                         permission_decision=permission_decision, safety_decision=safety_decision,
+                         verification="unavailable")
             return ExecutionResult(False, message, attempts=0, error=message)
 
         if self.dry_run:
             message = f"DRY RUN: would execute {tool}.{action}"
-            self._record(tool, action, signature, True, message, 0, dry_run=True)
-            return ExecutionResult(True, message, attempts=0, verified=True, dry_run=True)
+            self._record(tool, action, signature, True, message, 0, dry_run=True, intent=intent,
+                         permission_decision=permission_decision, safety_decision=safety_decision,
+                         verification="unavailable")
+            return ExecutionResult(True, message, attempts=0, verified=False, dry_run=True)
 
         self.checkpoint(f"before:{tool}.{action}")
         last_error = ""
@@ -75,20 +85,46 @@ class ExecutionPipeline:
         for attempts in range(1, self.max_retries + 2):
             try:
                 result = fn()
-                verified = bool(verify(result)) if verify is not None else True
+                observation = observe(result) if observe is not None else None
+                verification = "unavailable" if verify is None else "failed"
+                verified = False if verify is None else bool(verify(observation if observe is not None else result))
                 if verified:
-                    self._record(tool, action, signature, True, result, attempts)
+                    verification = "verified"
+                if verified:
+                    self._record(tool, action, signature, True, result, attempts, intent=intent,
+                                 permission_decision=permission_decision, safety_decision=safety_decision,
+                                 observation=observation, verification=verification)
                     self.checkpoint(f"after:{tool}.{action}", {"result": str(result)[:500]})
-                    return ExecutionResult(True, result, attempts=attempts, verified=True)
+                    return ExecutionResult(True, result, attempts=attempts, verified=True,
+                                           observation=observation, verification=verification)
+                if verify is None:
+                    self._record(tool, action, signature, True, result, attempts, intent=intent,
+                                 permission_decision=permission_decision, safety_decision=safety_decision,
+                                 observation=observation, verification=verification)
+                    self.checkpoint(f"after:{tool}.{action}", {"result": str(result)[:500]})
+                    return ExecutionResult(True, result, attempts=attempts, verified=False,
+                                           observation=observation, verification=verification)
                 last_error = "Verification failed"
             except Exception as exc:  # tool failures are contained at the boundary
                 last_error = str(exc)
 
         message = f"{tool}.{action} failed after {attempts} attempt(s): {last_error}"
-        self._record(tool, action, signature, False, message, attempts)
-        return ExecutionResult(False, message, attempts=attempts, verified=False, error=last_error)
+        self._record(tool, action, signature, False, message, attempts, intent=intent,
+                     permission_decision=permission_decision, safety_decision=safety_decision,
+                     verification="failed")
+        return ExecutionResult(False, message, attempts=attempts, verified=False, error=last_error,
+                               verification="failed")
 
-    def _record(self, tool: str, action: str, signature: str, ok: bool, result: Any, attempts: int, *, dry_run: bool = False) -> None:
+    def record_denial(self, tool: str, action: str, *, intent: str, permission_decision: str,
+                      safety_decision: str, result: str) -> ExecutionResult:
+        self._record(tool, action, f"{tool}:{action}", False, result, 0, intent=intent,
+                     permission_decision=permission_decision, safety_decision=safety_decision,
+                     verification="unavailable")
+        return ExecutionResult(False, result, attempts=0, error=result, verification="unavailable")
+
+    def _record(self, tool: str, action: str, signature: str, ok: bool, result: Any, attempts: int, *, dry_run: bool = False,
+                intent: str = "", permission_decision: str = "allow", safety_decision: str = "allow",
+                observation: Any = None, verification: str = "unavailable") -> None:
         self.history.append({
             "time": datetime.now().isoformat(timespec="seconds"),
             "tool": tool,
@@ -98,6 +134,13 @@ class ExecutionPipeline:
             "attempts": attempts,
             "result": str(result)[:1000],
             "dry_run": dry_run,
+            "intent": intent,
+            "permissions": permission_decision,
+            "safety": safety_decision,
+            "execution_result": str(result)[:1000],
+            "observation": observation,
+            "verification": verification,
+            "recovery": {"attempts": attempts, "retried": attempts > 1},
         })
         if len(self.history) > self.history_limit:
             del self.history[:-self.history_limit]

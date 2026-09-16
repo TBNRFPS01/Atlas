@@ -83,6 +83,16 @@ class WebTool(Tool):
         text = self._strip_tags(raw)
         return text[:2000] if text else "No readable text found on the page."
 
+    def _is_result_url(self, href: str) -> bool:
+        """Return True only for real external result URLs, not DDG navigation links."""
+        if not href:
+            return False
+        # DDG navigation/UI links start with / or ? — skip them
+        if href.startswith(("/", "?")):
+            return False
+        # Must be an absolute external URL
+        return href.startswith(("http://", "https://"))
+
     def _search(self, query: str) -> str:
         if not query:
             return "Search query required."
@@ -97,13 +107,22 @@ class WebTool(Tool):
             re.IGNORECASE | re.DOTALL,
         )
         results: list[tuple[str, str]] = []
-        skip = {"more at wikipedia"}
+        seen_urls: set[str] = set()
+        skip_titles = {"more at wikipedia", "next page", "previous page", "back to top"}
         for href, title in anchors:
-            title_text = self._strip_tags(title)
-            if not title_text or title_text.lower() in skip:
-                continue
+            # Decode DDG redirect wrapper first
             if href.startswith("//duckduckgo.com/l/"):
                 href = self._decode_uddg(href)
+            # Skip non-result links
+            if not self._is_result_url(href):
+                continue
+            title_text = self._strip_tags(title).strip()
+            if not title_text or title_text.lower() in skip_titles:
+                continue
+            # Deduplicate by URL
+            if href in seen_urls:
+                continue
+            seen_urls.add(href)
             results.append((title_text, href))
             if len(results) >= 10:
                 break
@@ -177,10 +196,12 @@ class WebTool(Tool):
         query = kwargs.get("query", "")
 
         try:
-            if action == "fetch" or (action == "search" and url):
+            if action == "fetch":
+                # Explicit fetch: use url if given, else treat query as url
                 return self._fetch(url or query)
             if action == "research":
                 return self._research(query or " ".join(str(a) for a in args))
+            # action == "search" (default): always use query, ignore url
             return self._search(query or " ".join(str(a) for a in args))
         except Exception as exc:
             return f"Web tool error: {exc}"

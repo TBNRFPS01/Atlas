@@ -256,9 +256,16 @@ class MemoryDatabase:
         if not terms:
             return []
 
+        # Pre-filter in SQL using OR LIKE so we don't load every row into Python
+        # for large databases.
+        like_clauses = " OR ".join(["content LIKE ?"] * len(terms))
+        pre_limit = max(limit * 20, 200)  # fetch a generous candidate set
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
-                "SELECT id, category, content, created_at, updated_at, importance, times_used, source FROM memories"
+                f"SELECT id, category, content, created_at, updated_at, importance, times_used, source "
+                f"FROM memories WHERE {like_clauses} "
+                f"ORDER BY importance DESC, times_used DESC LIMIT ?",
+                [f"%{t}%" for t in terms] + [pre_limit],
             ).fetchall()
 
         now = datetime.now(timezone.utc)
@@ -282,27 +289,35 @@ class MemoryDatabase:
         return [record for _, record in scored[:limit]]
 
     def consolidate_memories(self) -> int:
-        """Merge duplicate memories and update importance scores. Returns count of merged records."""
+        """Boost importance of frequently-referenced memories. Returns count updated.
+
+        The previous implementation used a subquery to find duplicate rows, but
+        the UNIQUE(category, content) constraint means true duplicates can never
+        exist. Instead we now reward memories that have been recalled often
+        (times_used > 1) with a small importance bump, which keeps high-traffic
+        memories surfaced in retrieve().
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
-                """
-                UPDATE memories SET importance = importance + 0.1, times_used = times_used + 1
-                WHERE id IN (
-                    SELECT id FROM memories WHERE rowid NOT IN (
-                        SELECT MIN(rowid) FROM memories GROUP BY category, content
-                    )
-                )
-                """
+                "UPDATE memories SET importance = importance + 0.1 WHERE times_used > 1"
             )
             conn.commit()
             return cursor.rowcount
 
-    def cleanup_old_memories(self, max_age_days: int = 30) -> int:
-        """Remove memories older than the specified number of days. Returns count of deleted records."""
-        from datetime import datetime, timedelta, timezone
+    def cleanup_old_memories(self, max_age_days: int = 30, importance_threshold: float = 3.0) -> int:
+        """Remove low-importance memories older than *max_age_days*. Returns count deleted.
+
+        Memories whose importance score is at or above *importance_threshold* are
+        kept regardless of age — they represent facts the user has reinforced
+        enough to be considered long-term.
+        """
+        from datetime import timedelta
 
         cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
         with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("DELETE FROM memories WHERE updated_at < ?", (cutoff,))
+            cursor = conn.execute(
+                "DELETE FROM memories WHERE updated_at < ? AND importance < ?",
+                (cutoff, importance_threshold),
+            )
             conn.commit()
             return cursor.rowcount

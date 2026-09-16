@@ -21,9 +21,14 @@ class ToolRegistry:
     def list(self) -> list[str]:
         return sorted(self._tools)
 
-    def discover(self, folder: str = "tools") -> list[str]:
+    def discover(self, folder: str | None = None) -> list[str]:
         """Auto-discover Python tool modules and register their default tool classes."""
-        root = Path(folder)
+        if folder is None:
+            # Default to the tools/ directory next to this file so that
+            # discover() works regardless of the process working directory.
+            root = Path(__file__).parent
+        else:
+            root = Path(folder)
         loaded: list[str] = []
 
         for path in sorted(root.glob("*.py")):

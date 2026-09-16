@@ -216,6 +216,18 @@ class Planner:
                 f"{task.tool_name} requires user confirmation before it can run in the background"
             )
 
+        execute_action = getattr(self.router, "execute_action", None)
+        if execute_action is not None:
+            action = str(task.tool_args.get("action", "execute"))
+            path = str(task.tool_args.get("path") or task.tool_args.get("title") or "")
+            return execute_action(
+                intent=task.description,
+                tool_name=task.tool_name,
+                action=action,
+                fn=lambda: tool.execute(**task.tool_args),
+                prompt="confirm" if consent == "user" else "",
+                path=path,
+            )
         return tool.execute(**task.tool_args)
 
     def _permission_decision(self, tool_name: str, tool_args: dict, consent: str = "user") -> str:

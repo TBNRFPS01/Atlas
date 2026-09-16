@@ -6,6 +6,7 @@ from typing import Any
 
 from core.autonomy import AutonomyController
 from core.brain import Brain
+from core.execution import ExecutionPipeline
 from core.personality import ATLASPersonality
 from core.permissions import Decision, PermissionManager
 from core.safety import HardSafety, SafetyViolation
@@ -39,16 +40,23 @@ class Router:
         goals: GoalManager | None = None,
         experiences: ExperienceStore | None = None,
         autonomy: AutonomyController | None = None,
+        plugin_manager=None,
     ) -> None:
         # Optional voice controller attached at runtime by main; annotate
         # here so Pylance knows the attribute exists.
         self._voice_controller: Any | None = None
         self._planner_inst: Any | None = None
+        self._health_monitor: Any | None = None
+        self._plugin_manager: Any | None = plugin_manager
         self._permissions = PermissionManager()
         self._safety = HardSafety()
         self._undo = UndoStack()
         self._trace: list[str] = []
         self._call_log: list[dict[str, Any]] = []
+        self._execution = ExecutionPipeline(
+            max_retries=int(config.get("execution_max_retries", 1)) if config else 1,
+            dry_run=bool(config.get("dry_run", False)) if config else False,
+        )
         if registry is None:
             from tools.registry import ToolRegistry
 
@@ -130,6 +138,12 @@ class Router:
                 return self.personality.respond("Spotify tool not loaded.")
             return self.personality.respond(self._spotify_request(prompt))
 
+        # Plugin dispatch: try loaded plugins before falling back to tool heuristics
+        if self._plugin_manager is not None:
+            plugin_result = self._plugin_manager.dispatch(prompt, self)
+            if plugin_result is not None:
+                return self.personality.respond(plugin_result)
+
         if self._looks_like_tool_request(prompt, lowered):
             return self.personality.respond(self._dispatch_tool(lowered))
 
@@ -176,6 +190,22 @@ class Router:
                         return
                     yield skill.run(self, prompt)
                     return
+
+        # Direct Spotify commands (mirrors the route() branch)
+        if lowered.startswith("spotify "):
+            tool = self._registry.get("spotify")
+            if tool is None:
+                yield "Spotify tool not loaded."
+            else:
+                yield self._spotify_request(prompt)
+            return
+
+        # Plugin dispatch
+        if self._plugin_manager is not None:
+            plugin_result = self._plugin_manager.dispatch(prompt, self)
+            if plugin_result is not None:
+                yield plugin_result
+                return
 
         if self._looks_like_tool_request(prompt, lowered):
             yield self._dispatch_tool(lowered)
@@ -377,25 +407,43 @@ class Router:
             return self._permissions.confirmation_prompt(tool_name, action)
         return None
 
-    def _timed_tool_call(self, tool_name: str, action: str, fn) -> str:
-        """Execute ``fn`` while recording duration, success, and errors for /debug."""
-        import time
-
-        start = time.perf_counter()
-        try:
-            result = fn()
-            ok, error = True, ""
-        except Exception as exc:
-            result = f"{tool_name} error: {exc}"
-            ok, error = False, str(exc)
-        duration = time.perf_counter() - start
+    def execute_action(self, *, intent: str, tool_name: str, action: str, fn, prompt: str = "",
+                       path: str | None = None, permission_level: str = "basic",
+                       confirmation_required: bool = False, observe=None, verify=None) -> str:
+        """The sole boundary for executable actions: policy, safety, evidence, and retries."""
+        if not self._safety.is_safe(tool_name, action, path):
+            result = self._execution.record_denial(tool_name, action, intent=intent,
+                permission_decision="not-evaluated", safety_decision="deny",
+                result="Blocked by hard safety boundary: this action is forbidden.")
+            self._record_trace(tool_name, action, "hard-safety-denied")
+            return str(result.result)
+        decision = self._permissions.decide(tool_name, action, permission_level=permission_level,
+            confirmation_required=confirmation_required, confirmed=self._confirmed(prompt))
+        if decision != Decision.ALLOW:
+            message = "Permission denied for this action." if decision == Decision.DENY else self._permissions.confirmation_prompt(tool_name, action)
+            result = self._execution.record_denial(tool_name, action, intent=intent,
+                permission_decision=decision, safety_decision="allow", result=message)
+            self._record_trace(tool_name, action, "denied" if decision == Decision.DENY else "awaiting confirmation")
+            return str(result.result)
+        result = self._execution.run(tool_name, action, fn, observe=observe, verify=verify,
+            intent=intent, permission_decision=decision, safety_decision="allow")
+        duration = 0.0
+        ok, error = result.ok, result.error
         self._call_log.append(
-            {"tool": tool_name, "action": action, "ok": ok, "duration": duration, "error": error}
+            {"tool": tool_name, "action": action, "ok": ok, "duration": duration, "error": error,
+             "verification": result.verification, "observation": result.observation}
         )
         if len(self._call_log) > 200:
             self._call_log = self._call_log[-200:]
         self._record_trace(tool_name, action, "ok" if ok else "error")
-        return result
+        return str(result.result)
+
+    def _timed_tool_call(self, tool_name: str, action: str, fn, *, prompt: str = "") -> str:
+        """Compatibility shim for existing router dispatches; always uses the execution boundary."""
+        metadata = getattr(self._registry.get(tool_name), "metadata", None)
+        return self.execute_action(intent=prompt or f"{tool_name}.{action}", tool_name=tool_name, action=action, fn=fn, prompt=prompt,
+            permission_level=getattr(metadata, "permission_level", "basic"),
+            confirmation_required=bool(getattr(metadata, "confirmation_required", False)))
 
     def _record_trace(self, tool_name: str, action: str, outcome: str) -> None:
         """Append a compact dispatch record for the /debug observability view."""
@@ -438,12 +486,10 @@ class Router:
             return "Please include a directory path. Example: list C:\\Users\\you"
 
         if action == "delete":
-            gate = self._authorize("file", "delete", permission_level="destructive",
-                                   confirmation_required=True, prompt=prompt, path=path)
-            if gate:
-                return gate
             # Destructive but reversible: move to trash instead of permanent delete.
-            return self._trash_file(path)
+            return self.execute_action(intent=prompt, tool_name="file", action="delete",
+                fn=lambda: self._trash_file(path), prompt=prompt, path=path,
+                permission_level="destructive", confirmation_required=True)
 
         content = ""
         if action == "write":
@@ -457,10 +503,22 @@ class Router:
 
             tool = FileTool()
 
-        return self._timed_tool_call(
-            "file", action,
-            lambda: tool.execute(action=action, path=path, content=content),
-        )
+        def observe_file(_result):
+            target = Path(path)
+            return {"exists": target.exists(), "content": target.read_text(encoding="utf-8") if target.exists() and target.is_file() else None}
+
+        def verify_file(observation):
+            if action == "write":
+                return bool(observation["exists"] and observation["content"] == content)
+            if action == "append":
+                return bool(observation["exists"] and observation["content"].endswith(content))
+            return False
+
+        from pathlib import Path
+        return self.execute_action(intent=prompt, tool_name="file", action=action,
+            fn=lambda: tool.execute(action=action, path=path, content=content), prompt=prompt, path=path,
+            observe=observe_file if action in {"write", "append"} else None,
+            verify=verify_file if action in {"write", "append"} else None)
 
     def _trash_file(self, path: str) -> str:
         """Move a file to the ATLAS trash folder and record an undo entry."""
@@ -549,7 +607,7 @@ class Router:
             )
         from tools.minecraft import minecraft_status
 
-        return minecraft_status()
+        return self._timed_tool_call("minecraft", "status", lambda: minecraft_status())
 
     def _spotify_request(self, prompt: str) -> str:
         """Dispatch a Spotify command using the loaded SpotifyTool."""
@@ -570,18 +628,8 @@ class Router:
 
         action, args = self._build_browser_args(prompt, lowered)
 
-        # Browser actions are gated by hard-safety boundaries and deny rules,
-        # but are otherwise allowed by default so the agent can operate sites
-        # autonomously. (An explicit deny rule still blocks them.)
-        gate = self._authorize("browser", action, permission_level="basic",
-                               confirmation_required=False, prompt=prompt)
-        if gate:
-            return gate
-
-        return self._timed_tool_call(
-            "browser", action,
-            lambda: tool.execute(**args),
-        )
+        return self.execute_action(intent=prompt, tool_name="browser", action=action,
+            fn=lambda: tool.execute(**args), prompt=prompt)
 
     def _build_browser_args(self, prompt: str, lowered: str) -> tuple[str, dict[str, Any]]:
         """Parse a natural-language browser command into BrowserTool args."""
@@ -834,22 +882,6 @@ class Router:
         if tool is None:
             return "Automation tool not loaded."
 
-        # Gate destructive automation actions behind explicit confirmation.
-        destructive = None
-        if "kill process" in lowered or "stop process" in lowered:
-            destructive = ("automation", "process_kill",
-                          self._build_automation_args(prompt, lowered).get("name", ""))
-        elif "close window" in lowered:
-            destructive = ("automation", "windows_close",
-                          self._build_automation_args(prompt, lowered).get("title", ""))
-
-        if destructive is not None:
-            tool_name, action, detail = destructive
-            gate = self._authorize(tool_name, action, permission_level="destructive",
-                                   confirmation_required=True, prompt=prompt)
-            if gate:
-                return gate
-
         args = self._build_automation_args(prompt, lowered)
 
         # Make clipboard writes reversible by recording the previous value.
@@ -863,10 +895,10 @@ class Router:
                         lambda p=prev: self._restore_clipboard(p),
                     )
                 return result
-            return self._timed_tool_call("automation", "clipboard_set", _write_and_record)
+            return self._timed_tool_call("automation", "clipboard_set", _write_and_record, prompt=prompt)
 
         return self._timed_tool_call("automation", args.get("action", "action"),
-                                     lambda: tool.execute(**args))
+                                     lambda: tool.execute(**args), prompt=prompt)
 
     def _capture_clipboard(self) -> str | None:
         try:
@@ -1130,7 +1162,7 @@ class Router:
         self._record_trace("router", "dispatch", lowered[:40])
 
         if "screenshot" in lowered:
-            return self._take_screenshot()
+            return self._timed_tool_call("vision", "screenshot", self._take_screenshot, prompt=prompt)
 
         if "minecraft" in lowered:
             return self._minecraft_request(prompt)
@@ -1142,14 +1174,9 @@ class Router:
             tool = self._registry.get("email")
             if tool is None:
                 return "Email tool not loaded."
-            gate = self._authorize("email", "send", permission_level="elevated",
-                                   confirmation_required=True, prompt=prompt)
-            if gate:
-                return gate
-            return self._timed_tool_call(
-                "email", "send",
-                lambda: tool.execute(**self._email_request(prompt)),
-            )
+            return self.execute_action(intent=prompt, tool_name="email", action="send",
+                fn=lambda: tool.execute(**self._email_request(prompt)), prompt=prompt,
+                permission_level="elevated", confirmation_required=True)
 
         # Computer-control commands take priority so "read the screen" or
         # "read clipboard" are not swallowed by the file branch below.
@@ -1216,10 +1243,10 @@ class Router:
             )
 
         if command.startswith("/browser "):
-            return self._browser_request(prompt[len("/browser "):].strip())
+            return self._browser_request(command[len("/browser "):].strip())
 
         if command == "/vision":
-            return self._take_screenshot()
+            return self._timed_tool_call("vision", "screenshot", self._take_screenshot, prompt=command)
 
         if command == "/screen":
             return self._describe_screen()
@@ -1250,11 +1277,22 @@ class Router:
         if command == "/debug":
             return self._debug_report()
         if command == "/status":
-            return (
+            tool_names = self._registry.list()
+            base = (
                 f"ATLAS status: brain online, memory connected, router ready.\n"
-                f"Loaded tools: {len(self._registry.list())} · Memories: {len(self.memory.search(''))} · "
+                f"Loaded tools: {len(tool_names)} ({', '.join(tool_names) if tool_names else 'none'}) · "
+                f"Memories: {len(self.memory.search(''))} · "
                 f"Active goals: {len(self._goals.active_goals())}"
             )
+            # Append health monitor status if available
+            monitor = getattr(self, "_health_monitor", None)
+            if monitor is not None:
+                statuses = monitor.get_status()
+                health_line = " · ".join(
+                    f"{name}: {'✓' if ok else '✗'}" for name, ok in sorted(statuses.items())
+                )
+                base += f"\nHealth: {health_line}" if health_line else ""
+            return base
         if command == "/goals" or command.startswith("/goals "):
             return self._goals_command(command)
         if command == "/lessons":

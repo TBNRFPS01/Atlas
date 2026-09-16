@@ -20,7 +20,7 @@ def test_retries_then_succeeds():
         return "ok"
 
     pipeline = ExecutionPipeline(max_retries=1)
-    result = pipeline.run("demo", "run", action, signature="demo:run")
+    result = pipeline.run("demo", "run", action, verify=lambda value: value == "ok", signature="demo:run")
     assert result.ok
     assert result.verified
     assert result.attempts == 2
