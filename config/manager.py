@@ -56,6 +56,9 @@ class ConfigDefaults:
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_site_url: str = ""
     openrouter_app_name: str = "ATLAS"
+    gemini_enabled: bool = False
+    gemini_model: str = "gemini-3.1-flash-lite"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     primary_provider: str = "local"
     fallback_provider: str = "openrouter"
     stt_enabled: bool = False
@@ -120,6 +123,8 @@ class ConfigManager:
             "ATLAS_OPENROUTER_MODEL": "openrouter_model", "ATLAS_OPENROUTER_MODELS": "openrouter_models",
             "ATLAS_OPENROUTER_BASE_URL": "openrouter_base_url", "ATLAS_OPENROUTER_SITE_URL": "openrouter_site_url",
             "ATLAS_OPENROUTER_APP_NAME": "openrouter_app_name", "ATLAS_OPENROUTER_ENABLED": "openrouter_enabled",
+            "ATLAS_GEMINI_MODEL": "gemini_model", "ATLAS_GEMINI_BASE_URL": "gemini_base_url",
+            "ATLAS_GEMINI_ENABLED": "gemini_enabled",
             "ATLAS_PRIMARY_PROVIDER": "primary_provider", "ATLAS_FALLBACK_PROVIDER": "fallback_provider",
             "ATLAS_STT_ENABLED": "stt_enabled", "ATLAS_STT_MODEL": "stt_model", "ATLAS_STT_LANGUAGE": "stt_language",
             "ATLAS_STT_DEVICE": "stt_device", "ATLAS_STT_COMPUTE_TYPE": "stt_compute_type",
@@ -199,9 +204,9 @@ class ConfigManager:
             issues.append("openrouter_api_key or OPENROUTER_API_KEY is required when openrouter_enabled is true")
         if self.get("openrouter_enabled") and not self.get_openrouter_models():
             issues.append("openrouter_models or openrouter_model is required when openrouter_enabled is true")
-        if self.get("primary_provider") not in ("local", "gateway", "openrouter"):
+        if self.get("primary_provider") not in ("local", "gateway", "openrouter", "gemini"):
             issues.append("primary_provider must be 'local', 'gateway', or 'openrouter'")
-        if self.get("fallback_provider") not in ("local", "gateway", "openrouter", "none"):
+        if self.get("fallback_provider") not in ("local", "gateway", "openrouter", "gemini", "none"):
             issues.append("fallback_provider must be 'local', 'gateway', 'openrouter', or 'none'")
         return issues
 
