@@ -253,6 +253,24 @@ class OpenAICompatibleProvider(LLMProvider):
         return self._config
 
 
+class GeminiProvider(OpenAICompatibleProvider):
+    """Google Gemini API provider via Google's OpenAI-compatible endpoint."""
+
+    DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    DEFAULT_MODEL = "gemini-3.1-flash-lite"
+
+    def __init__(self, api_key: str, model: str = DEFAULT_MODEL,
+                 base_url: str = DEFAULT_BASE_URL, temperature: float = 0.7,
+                 max_tokens: int = 512) -> None:
+        if not api_key:
+            raise ValueError("Gemini API key is required")
+        config = ProviderConfig(
+            name="gemini", base_url=base_url, api_key=api_key, model=model,
+            temperature=temperature, max_tokens=max_tokens, enabled=True,
+        )
+        super().__init__(config)
+
+
 class LocalProvider(OpenAICompatibleProvider):
     """LM Studio local provider."""
 
