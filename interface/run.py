@@ -13,7 +13,7 @@ def build_backend():
     from core.router import Router
     from core.smart_provider import SmartProvider
     from core.openrouter import OpenRouterProvider
-    from core.providers import LocalProvider, GatewayProvider
+    from core.providers import LocalProvider, GatewayProvider, GeminiProvider
     from memory.facts import FactStore
     from tools.registry import ToolRegistry
     from voice.controller import VoiceController
@@ -31,7 +31,7 @@ def build_backend():
     )
 
     # The GUI uses the same task-aware provider path as the CLI.
-    if config.get("openrouter_enabled", False):
+    if config.get("openrouter_enabled", False) and config.get("primary_provider", "local") == "openrouter":
         openrouter_key = config.get("openrouter_api_key", "") or os.getenv("OPENROUTER_API_KEY", "")
         if openrouter_key:
             local = LocalProvider(
