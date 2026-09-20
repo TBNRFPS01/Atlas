@@ -10,7 +10,7 @@ from memory.facts import FactStore
 from openai import APIConnectionError, OpenAI
 
 from core.openrouter import OpenRouterProvider
-from core.providers import LocalProvider, GatewayProvider, MultiProvider
+from core.providers import LocalProvider, GatewayProvider, GeminiProvider, MultiProvider
 from utils.logger import get_logger
 
 
@@ -127,6 +127,15 @@ class Brain:
                 max_tokens=self.max_tokens,
                 site_url=self.config.get("openrouter_site_url", ""),
                 app_name=self.config.get("openrouter_app_name", "ATLAS"),
+            )
+        gemini_key = os.getenv("GEMINI_API_KEY", "")
+        if self.config.get("gemini_enabled", False) and gemini_key:
+            providers["gemini"] = GeminiProvider(
+                api_key=gemini_key,
+                model=self.config.get("gemini_model", GeminiProvider.DEFAULT_MODEL),
+                base_url=self.config.get("gemini_base_url", GeminiProvider.DEFAULT_BASE_URL),
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
             )
         primary_name = self.config.get("primary_provider", "local")
         fallback_name = self.config.get("fallback_provider", "none")
