@@ -28,9 +28,9 @@
   "openrouter_models": "qwen/qwen3-32b:free,openrouter/free",
   "openrouter_base_url": "https://openrouter.ai/api/v1",
   "openrouter_app_name": "ATLAS",
-  "gemini_enabled": false,
+  "gemini_enabled": true,
   "gemini_model": "gemini-3.1-flash-lite",
   "gemini_base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-  "primary_provider": "openrouter",
-  "fallback_provider": "local"
+  "primary_provider": "gemini",
+  "fallback_provider": "openrouter"
 }
