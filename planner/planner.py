@@ -19,7 +19,8 @@ class Planner:
         "Each step must have: description (str), tool_name (str or null), tool_args (object). "
         "Available tools: file (read/write/append/delete/list), system (info), web (search/fetch), "
         "screenshot (capture), automation (keyboard_type/click/windows_launch/process/context), "
-        "media (play), minecraft (status). "
+        "media (play), minecraft (status), git (status/log/diff/branch/add/commit/checkout/pull/push). "
+        "Use git for repository inspection and version control. Never request git force_push or reset_hard. "
         "Use automation for anything on the computer itself. "
         "If no tool fits, use null. Output ONLY valid JSON array. No markdown, no explanation."
     )
@@ -145,6 +146,11 @@ class Planner:
 
         if "screenshot" in g:
             return [{"description": "Take a screenshot", "tool_name": "screenshot", "tool_args": {}}]
+        if re.search(r"\bgit\b", g):
+            from tools.git_tool import parse_request
+
+            parsed = parse_request(goal) or {"action": "status"}
+            return [{"description": goal, "tool_name": "git", "tool_args": parsed}]
         if "search" in g or "look up" in g or "find" in g:
             return [{"description": goal, "tool_name": "web", "tool_args": {"action": "search", "query": goal}}]
         return [{"description": f"Process goal: {goal}", "tool_name": None, "tool_args": {}}]
@@ -220,6 +226,11 @@ class Planner:
         if execute_action is not None:
             action = str(task.tool_args.get("action", "execute"))
             path = str(task.tool_args.get("path") or task.tool_args.get("title") or "")
+            observe = None
+            verify = None
+            hooks = getattr(tool, "evidence_hooks", None)
+            if callable(hooks):
+                observe, verify = hooks(action, task.tool_args)
             return execute_action(
                 intent=task.description,
                 tool_name=task.tool_name,
@@ -227,6 +238,8 @@ class Planner:
                 fn=lambda: tool.execute(**task.tool_args),
                 prompt="confirm" if consent == "user" else "",
                 path=path,
+                observe=observe,
+                verify=verify,
             )
         return tool.execute(**task.tool_args)
 

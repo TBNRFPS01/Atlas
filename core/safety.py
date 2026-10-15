@@ -36,6 +36,9 @@ FORBIDDEN_ACTIONS = {
     ("automation", "shutdown"),
     ("automation", "reboot"),
     ("file", "format"),
+    ("git", "force_push"),
+    ("git", "reset_hard"),
+    ("git", "clean"),
 }
 
 # Path fragments that indicate a protected / system-critical target.

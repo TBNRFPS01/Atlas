@@ -29,6 +29,8 @@ class PermissionManager:
         ("browser", "eval_js"),
         ("system", "launch_application"),
         ("system", "launch_application_path"),
+        ("git", "push"),
+        ("git", "checkout"),
     }
 
     ELEVATED_ACTIONS: set[tuple[str, str]] = {
@@ -37,6 +39,11 @@ class PermissionManager:
         ("automation", "clipboard_get"),
         ("system", "launch_application"),
         ("system", "launch_application_path"),
+        ("git", "add"),
+        ("git", "commit"),
+        ("git", "create_branch"),
+        ("git", "pull"),
+        ("git", "stash"),
     }
 
     LEVELS = {"basic": 0, "elevated": 1, "destructive": 2}
@@ -134,6 +141,13 @@ class PermissionManager:
             ("system", "launch_application"): "launch an application",
             ("system", "launch_application_path"): "launch an application",
             ("email", "send"): "send email",
+            ("git", "commit"): "create git commit",
+            ("git", "push"): "push git commits",
+            ("git", "add"): "stage git files",
+            ("git", "checkout"): "switch git branch",
+            ("git", "create_branch"): "create git branch",
+            ("git", "pull"): "pull git remote",
+            ("git", "stash"): "stash git changes",
         }.get((tool_name, action), action.replace("_", " "))
         suffix = f" {detail}" if detail else ""
         return f"Confirm: {verb}{suffix}? Reply with 'yes, {verb}{suffix}' to proceed."

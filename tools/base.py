@@ -72,5 +72,31 @@ class Tool(ABC):
     def execute(self, *args, **kwargs) -> str:
         """Run the tool and return a plain-text result."""
 
+    def observe(self, action: str, result: str, **kwargs: Any) -> Any:
+        """Re-read reality after an action. Override to return structured evidence.
+
+        Returning ``None`` means observation is unavailable.
+        """
+        return None
+
+    def verify(self, action: str, observation: Any, **kwargs: Any) -> bool | None:
+        """Return True if the outcome happened, False if it did not, None if unknown."""
+        return None
+
+    def evidence_hooks(self, action: str, kwargs: dict[str, Any]) -> tuple[Any, Any]:
+        """Bind observe/verify for the execution boundary without the router owning them."""
+        has_observe = type(self).observe is not Tool.observe
+        has_verify = type(self).verify is not Tool.verify
+        if not has_observe and not has_verify:
+            return None, None
+
+        def _observe(result: str) -> Any:
+            return self.observe(action, result, **kwargs)
+
+        def _verify(observation: Any) -> bool | None:
+            return self.verify(action, observation, **kwargs)
+
+        return (_observe if has_observe else None, _verify if has_verify else None)
+
     def describe(self) -> str:
         return f"{self.name}: {self.description}"

@@ -39,6 +39,14 @@ def test_verification_failure_is_retried():
     assert result.attempts == 2
 
 
+def test_verify_none_is_unavailable_not_failure():
+    pipeline = ExecutionPipeline(max_retries=0)
+    result = pipeline.run("demo", "run", lambda: "ok", verify=lambda value: None, signature="demo:unknown")
+    assert result.ok
+    assert result.verification == "unavailable"
+    assert result.verified is False
+
+
 def test_repeated_action_is_stopped():
     pipeline = ExecutionPipeline(max_retries=0)
     calls = {"count": 0}

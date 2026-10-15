@@ -57,10 +57,16 @@ class NaturalCapabilityRouter:
                 return blocked
 
         intent = str(kwargs.pop("_prompt", "") or f"{tool_name}.{action}")
+        observe = None
+        verify = None
+        hooks = getattr(tool, "evidence_hooks", None)
+        if callable(hooks):
+            observe, verify = hooks(action, kwargs)
         if execute_action is not None:
             return execute_action(intent=intent, tool_name=tool_name, action=action,
                 fn=lambda: tool.execute(**kwargs), prompt=intent, path=path,
-                permission_level=permission_level, confirmation_required=confirmation_required)
+                permission_level=permission_level, confirmation_required=confirmation_required,
+                observe=observe, verify=verify)
         try:
             return tool.execute(**kwargs)
         except Exception as exc:
@@ -154,6 +160,11 @@ class NaturalCapabilityRouter:
                 query = prompt[len(prefix):].strip()
                 return f"web:search:{query}" if query else "web:missing"
 
+        from tools.git_tool import parse_request
+
+        if parse_request(prompt):
+            return "git"
+
         if re.search(r"\b(?:system|computer|pc)\s+(?:status|info|information)\b", text):
             return "system:info"
         if re.search(r"\b(?:cpu|processor)\s+(?:usage|status|info|information)\b", text):
@@ -222,6 +233,12 @@ class NaturalCapabilityRouter:
             return self._execute(router, "context", action=parts[1], _prompt=prompt)
         if parts[0] == "application":
             return self._application_action(router, parts[1], parts[2])
+        if parts[0] == "git":
+            from tools.git_tool import parse_request
+
+            kwargs = parse_request(prompt) or {"action": "status"}
+            kwargs["_prompt"] = prompt
+            return self._execute(router, "git", **kwargs)
         return None
 
     def _route(self, router: Any, prompt: str) -> str:

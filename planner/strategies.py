@@ -8,6 +8,7 @@ before.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,7 +41,7 @@ class StrategySelector:
 
     TASK_TYPES = (
         "email", "minecraft", "media", "system", "vision", "browser",
-        "file", "web", "automation", "general",
+        "git", "file", "web", "automation", "general",
     )
 
     # (strategy_key, human description)
@@ -51,6 +52,7 @@ class StrategySelector:
         "system": ("system", "Query system/hardware info with the system tool."),
         "vision": ("vision", "Capture and inspect the screen with screenshots and the vision tool."),
         "browser": ("browser", "Operate real websites with the browser tool (navigate, click, type, fill)."),
+        "git": ("git", "Inspect the repository with the git tool, then mutate only after confirmation."),
         "file": ("file", "Work with files and folders via the file tool (read/write/append/list)."),
         "web": ("web", "Research with web search/fetch; use the web tool first."),
         "automation": ("automation", "Drive the computer itself with the automation tool (windows, keyboard, mouse)."),
@@ -75,6 +77,8 @@ class StrategySelector:
             "fill form", "open website", "open url", "fetch url for site",
         )):
             return "browser"
+        if re.search(r"\bgit\s+(status|log|diff|commit|push|pull|branch|checkout|add)\b", lowered) or "git repo" in lowered:
+            return "git"
         if any(k in lowered for k in ("read file", "write file", "append", "delete file",
                                       "list folder", "list directory", "create file", "folder", "directory")):
             return "file"

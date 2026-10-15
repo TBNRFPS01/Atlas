@@ -41,3 +41,14 @@ def test_generic_application_requests_are_not_hardcoded():
 def test_normal_conversation_is_not_captured():
     assert match("how are you today?") is None
     assert match("tell me about computer science") is None
+
+
+def test_git_status_is_not_an_application_launch():
+    assert match("git status") == "git"
+    assert match("run git status") == "git"
+    assert match("what's the git status") == "git"
+
+
+def test_git_questions_are_not_captured():
+    assert match("what is git") is None
+    assert match("tell me how git works") is None

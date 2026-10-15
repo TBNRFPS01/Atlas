@@ -16,6 +16,10 @@ def test_classify_file() -> None:
     assert StrategySelector().classify("read file C:\\notes.txt") == "file"
 
 
+def test_classify_git() -> None:
+    assert StrategySelector().classify("git status of this repo") == "git"
+
+
 def test_classify_automation() -> None:
     assert StrategySelector().classify("open notepad and type hello") == "automation"
 

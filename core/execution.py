@@ -86,24 +86,28 @@ class ExecutionPipeline:
             try:
                 result = fn()
                 observation = observe(result) if observe is not None else None
-                verification = "unavailable" if verify is None else "failed"
-                verified = False if verify is None else bool(verify(observation if observe is not None else result))
-                if verified:
-                    verification = "verified"
-                if verified:
-                    self._record(tool, action, signature, True, result, attempts, intent=intent,
-                                 permission_decision=permission_decision, safety_decision=safety_decision,
-                                 observation=observation, verification=verification)
-                    self.checkpoint(f"after:{tool}.{action}", {"result": str(result)[:500]})
-                    return ExecutionResult(True, result, attempts=attempts, verified=True,
-                                           observation=observation, verification=verification)
                 if verify is None:
                     self._record(tool, action, signature, True, result, attempts, intent=intent,
                                  permission_decision=permission_decision, safety_decision=safety_decision,
-                                 observation=observation, verification=verification)
+                                 observation=observation, verification="unavailable")
                     self.checkpoint(f"after:{tool}.{action}", {"result": str(result)[:500]})
                     return ExecutionResult(True, result, attempts=attempts, verified=False,
-                                           observation=observation, verification=verification)
+                                           observation=observation, verification="unavailable")
+                verdict = verify(observation if observe is not None else result)
+                if verdict is None:
+                    self._record(tool, action, signature, True, result, attempts, intent=intent,
+                                 permission_decision=permission_decision, safety_decision=safety_decision,
+                                 observation=observation, verification="unavailable")
+                    self.checkpoint(f"after:{tool}.{action}", {"result": str(result)[:500]})
+                    return ExecutionResult(True, result, attempts=attempts, verified=False,
+                                           observation=observation, verification="unavailable")
+                if verdict:
+                    self._record(tool, action, signature, True, result, attempts, intent=intent,
+                                 permission_decision=permission_decision, safety_decision=safety_decision,
+                                 observation=observation, verification="verified")
+                    self.checkpoint(f"after:{tool}.{action}", {"result": str(result)[:500]})
+                    return ExecutionResult(True, result, attempts=attempts, verified=True,
+                                           observation=observation, verification="verified")
                 last_error = "Verification failed"
             except Exception as exc:  # tool failures are contained at the boundary
                 last_error = str(exc)
